@@ -41,9 +41,14 @@ async fn main() -> Result<(), reqwest::Error> {
     let response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
 
     let s: Wrapper = response.json().await?;
-
+    println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
+             "in_region",
+             "in_system",
+             "in_sig",
+             "out_sig",
+             "time_remaining" );
     for key in s.iter() {
-        println!("{} {} {} {} {}",
+        println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
                  key.in_region_name,
                  key.in_system_name,
                  key.in_signature,
