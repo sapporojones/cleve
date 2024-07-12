@@ -1,10 +1,7 @@
-// use reqwest::{Error, Response};
-use reqwest;
+// use reqwest;
 use serde::{Deserialize, Serialize};
-use serde_json;
-use std::collections::HashMap;
 
-pub type Wrapper = Vec<Hole>;
+type Wrapper = Vec<Hole>;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Hole {
@@ -38,17 +35,23 @@ struct Hole {
 
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
+    evescout().await?;
+    
+    Ok(())
+}
+
+async fn evescout() -> Result<(), reqwest::Error> {
     let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
 
     let thera: Wrapper = rthera.json().await?;
-    println!("Thera\n{:<20} {:<20} {:<20} {:<20} {:<20}\n",
+    println!("Thera\n{:<15} {:<15} {:<15} {:<15} {:<15}\n",
              "in_region",
              "in_system",
              "in_sig",
              "out_sig",
              "time_remaining" );
     for key in thera.iter() {
-        println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
+        println!("{:<15} {:<15} {:<15} {:<15} {:<15}",
                  key.in_region_name,
                  key.in_system_name,
                  key.in_signature,
@@ -59,14 +62,14 @@ async fn main() -> Result<(), reqwest::Error> {
     let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
 
     let turnur: Wrapper = rturnur.json().await?;
-    println!("Turnur\n{:<20} {:<20} {:<20} {:<20} {:<20}\n",
+    println!("Turnur\n{:<15} {:<15} {:<15} {:<15} {:<15}\n",
              "in_region",
              "in_system",
              "in_sig",
              "out_sig",
              "time_remaining" );
     for key in turnur.iter() {
-        println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
+        println!("{:<15} {:<15} {:<15} {:<15} {:<15}",
                  key.in_region_name,
                  key.in_system_name,
                  key.in_signature,
@@ -74,7 +77,5 @@ async fn main() -> Result<(), reqwest::Error> {
                  key.remaining_hours);
     }
     println!("\n");
-    // dbg!(s);
     Ok(())
 }
-
