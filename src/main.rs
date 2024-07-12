@@ -38,16 +38,16 @@ struct Hole {
 
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
-    let response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
+    let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
 
-    let s: Wrapper = response.json().await?;
-    println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
+    let thera: Wrapper = rthera.json().await?;
+    println!("Thera\n{:<20} {:<20} {:<20} {:<20} {:<20}\n",
              "in_region",
              "in_system",
              "in_sig",
              "out_sig",
              "time_remaining" );
-    for key in s.iter() {
+    for key in thera.iter() {
         println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
                  key.in_region_name,
                  key.in_system_name,
@@ -55,6 +55,25 @@ async fn main() -> Result<(), reqwest::Error> {
                  key.out_signature,
                  key.remaining_hours);
     }
+    println!("\n");
+    let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
+
+    let turnur: Wrapper = rturnur.json().await?;
+    println!("Turnur\n{:<20} {:<20} {:<20} {:<20} {:<20}\n",
+             "in_region",
+             "in_system",
+             "in_sig",
+             "out_sig",
+             "time_remaining" );
+    for key in turnur.iter() {
+        println!("{:<20} {:<20} {:<20} {:<20} {:<20}",
+                 key.in_region_name,
+                 key.in_system_name,
+                 key.in_signature,
+                 key.out_signature,
+                 key.remaining_hours);
+    }
+    println!("\n");
     // dbg!(s);
     Ok(())
 }
