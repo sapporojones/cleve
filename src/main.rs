@@ -1,4 +1,3 @@
-// use reqwest;
 use serde::{Deserialize, Serialize};
 
 type Wrapper = Vec<Hole>;
@@ -42,16 +41,18 @@ async fn main() -> Result<(), reqwest::Error> {
 
 async fn evescout() -> Result<(), reqwest::Error> {
     let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
-
     let thera: Wrapper = rthera.json().await?;
-    println!("Thera\n{:<15} {:<15} {:<15} {:<15} {:<15}\n",
+    let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
+    let turnur: Wrapper = rturnur.json().await?;
+
+    println!("\nThera\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
              "in_system",
              "in_sig",
              "out_sig",
              "time_remaining" );
     for key in thera.iter() {
-        println!("{:<15} {:<15} {:<15} {:<15} {:<15}",
+        println!("{:<20} {:<15} {:<15} {:<15} {:<15}",
                  key.in_region_name,
                  key.in_system_name,
                  key.in_signature,
@@ -59,17 +60,14 @@ async fn evescout() -> Result<(), reqwest::Error> {
                  key.remaining_hours);
     }
     println!("\n");
-    let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
-
-    let turnur: Wrapper = rturnur.json().await?;
-    println!("Turnur\n{:<15} {:<15} {:<15} {:<15} {:<15}\n",
+    println!("Turnur\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
              "in_system",
              "in_sig",
              "out_sig",
              "time_remaining" );
     for key in turnur.iter() {
-        println!("{:<15} {:<15} {:<15} {:<15} {:<15}",
+        println!("{:<20} {:<15} {:<15} {:<15} {:<15}",
                  key.in_region_name,
                  key.in_system_name,
                  key.in_signature,
