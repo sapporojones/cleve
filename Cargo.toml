@@ -11,3 +11,4 @@ serde = { version = "1.0.203", features = ["derive"] }
 clap = { version = "4.5.9", features = ["derive"] }
 chrono = "0.4.31"
 ureq = { version = "2.8.0", features = ["json"]}
+serde_with = "3.9.0"

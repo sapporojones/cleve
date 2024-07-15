@@ -40,7 +40,9 @@ struct Hole {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CharInfo {
-    pub alliance_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alliance_id: Option<u64>,
+    // pub alliance_id: i64,
     pub birthday: String,
     pub bloodline_id: i64,
     pub corporation_id: i64,
@@ -69,6 +71,39 @@ pub struct Info {
     pub name: String,
     #[serde(rename = "memberCount")]
     pub member_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+struct AllianceID {
+    alliance_id: u64,
+}
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct CorpInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alliance_id: Option<u64>,
+    pub ceo_id: i64,
+    pub creator_id: i64,
+    pub date_founded: String,
+    pub description: String,
+    pub home_station_id: i64,
+    pub member_count: i64,
+    pub name: String,
+    pub shares: i64,
+    pub tax_rate: f64,
+    pub ticker: String,
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub war_eligible: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AllianceInfo {
+    pub creator_corporation_id: i64,
+    pub creator_id: i64,
+    pub date_founded: String,
+    pub executor_corporation_id: i64,
+    pub name: String,
+    pub ticker: String,
 }
 
 #[derive(Parser)]
@@ -229,16 +264,16 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     // uncomment below to accept char id from user via command line args
     let ci = char_name;
     let char_id = char_search(ci);
-    let p  = public_info(char_id.as_str()).await?;
+    let p: CharInfo  = public_info(char_id.as_str()).await?;
 
     let corpid: i64 = p.corporation_id;
-    let c: Value = corp_info(corpid.to_string().as_str());
+    let c: CorpInfo = corp_info(corpid.to_string().as_str()).await?;
 
-    let alliance_info = if c["alliance_id"].is_null() {
-        json!({"Alliance":  "Corporation is not a member of an alliance."})
-    } else {
-        alice_info(c["alliance_id"].to_string())
-    };
+
+    let aid = c.alliance_id.clone();
+
+
+    // TODO: check for alliance id in corp info
 
     let zs: Value = get_zkb_stats(char_id.clone());
 
@@ -273,14 +308,14 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     println!(
         "\nCorporation: {} [{}]",
-        c["name"].to_string().replace("\"", ""),
-        c["ticker"].to_string().replace("\"", "")
+        c.name.to_string().replace("\"", ""),
+        c.ticker.to_string().replace("\"", "")
     );
     // println!("Ticker: {}", c["ticker"]);
-    println!("Corporation members: {}", c["member_count"]);
-    println!("Corporation tax rate: {}", c["tax_rate"]);
+    println!("Corporation members: {}", c.member_count);
+    println!("Corporation tax rate: {}", c.tax_rate);
 
-    let corp_bday_raw: String = c["date_founded"].to_string().replace("\"", "");
+    let corp_bday_raw: String = c.date_founded.to_string().replace("\"", "");
     let corp_bday: String = date_parse(&corp_bday_raw);
     println!("Corporation founded on: {}", corp_bday);
     println!(
@@ -288,25 +323,65 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         p.corporation_id
     );
 
-    if c["alliance_id"].is_null() {
-        println!("\nAlliance:  Corporation is not a member of an alliance.")
-    } else {
-        // println!("Alliance: {} - {}", a["name"], a["ticker"])
-        println!(
-            "\nAlliance: {} [{}]",
-            alliance_info["name"].to_string().replace("\"", ""),
-            alliance_info["ticker"].to_string().replace("\"", "")
-        );
+    match c.alliance_id {
+        None => {
+            println!("\nAlliance:  Corporation is not a member of an alliance.")
+        },
+        Some(_aid) => {
+            let alliance_info: AllianceInfo = alliance_info(aid.unwrap().to_string()).await?;
+            println!(
+                "\nAlliance: {} [{}]",
+                alliance_info.name.to_string().replace("\"", ""),
+                alliance_info.ticker.to_string().replace("\"", "")
+            );
 
-        let alliance_bday_raw: String = alliance_info["date_founded"].to_string().replace("\"", "");
-        let alliance_bday: String = date_parse(&alliance_bday_raw);
+            let alliance_bday_raw: String = alliance_info.date_founded.to_string().replace("\"", "");
+            let alliance_bday: String = date_parse(&alliance_bday_raw);
 
-        println!("Alliance founded on: {}", alliance_bday);
-        println!(
-            "Alliance evewho: https://evewho.com/alliance/{}",
-            c["alliance_id"]
-        )
-    }
+            println!("Alliance founded on: {}", alliance_bday);
+            println!(
+                "Alliance evewho: https://evewho.com/alliance/{:?}",
+                c.alliance_id.unwrap()
+            )
+        }
+
+    };
+
+    // if c.alliance_id.is_none() {
+    //     println!("\nAlliance:  Corporation is not a member of an alliance.")
+    // } else {
+    //     // println!("Alliance: {} - {}", a["name"], a["ticker"])
+    //     println!(
+    //         "\nAlliance: {} [{}]",
+    //         alliance_info.name.to_string().replace("\"", ""),
+    //         alliance_info.ticker.to_string().replace("\"", "")
+    //     );
+    //
+    //     let alliance_bday_raw: String = alliance_info.date_founded.to_string().replace("\"", "");
+    //     let alliance_bday: String = date_parse(&alliance_bday_raw);
+    //
+    //     println!("Alliance founded on: {}", alliance_bday);
+    //     println!(
+    //         "Alliance evewho: https://evewho.com/alliance/{:?}",
+    //         c.alliance_id
+    //     )
+    // }
+
+    // println!(
+    //     "\nAlliance: {} [{}]",
+    //     alliance_info.name.to_string().replace("\"", ""),
+    //     alliance_info.ticker.to_string().replace("\"", "")
+    // );
+    //
+    // let alliance_bday_raw: String = alliance_info.date_founded.to_string().replace("\"", "");
+    // let alliance_bday: String = date_parse(&alliance_bday_raw);
+    //
+    // println!("Alliance founded on: {}", alliance_bday);
+    // println!(
+    //     "Alliance evewho: https://evewho.com/alliance/{}",
+    //     c.alliance_id.to_string().as_str()
+    // );
+
 
     println!("\n\nZKB Stats:");
     println!(
@@ -370,54 +445,43 @@ async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
         "https://esi.evetech.net/latest/characters/{char_id}/?datasource=tranquility"
     );
 
-    // let ps: String = ureq::get(&p_url)
-    //     .call()
-    //     .expect("pubinfo call failed")
-    //     .into_string()
-    //     .expect("couldn't convert pubinfo to string");
-    // let p: Value = serde_json::from_str(ps.as_str()).expect("couldn't convert pubinfo to json");
-
     let p = reqwest::get(&p_url).await?;
     let pr: CharInfo = p.json().await?;
 
     Ok(pr)
 }
 
-fn corp_info(corporation_id: &str) -> Value {
+async fn corp_info(corporation_id: &str) -> Result<CorpInfo, reqwest::Error> {
     println!("Fetching corporation info...");
     let c_url: String = format!(
         "https://esi.evetech.net/latest/corporations/{}/?datasource=tranquility",
         corporation_id
     );
 
-    let cs: String = ureq::get(&c_url)
-        .call()
-        .expect("this shouldn't fail")
-        .into_string()
-        .expect("couldn't coerce to string");
+    // let cs: String = ureq::get(&c_url)
+    //     .call()
+    //     .expect("this shouldn't fail")
+    //     .into_string()
+    //     .expect("couldn't coerce to string");
+    //
+    // let c: Value = serde_json::from_str(cs.as_str()).expect("couldn't convert to json");
 
-    let c: Value = serde_json::from_str(cs.as_str()).expect("couldn't convert to json");
-
-    c
+    let corpr = reqwest::get(c_url).await?;
+    let cr: CorpInfo = corpr.json().await?;
+    Ok(cr)
 }
 
-fn alice_info(corporation_id: String) -> Value {
+async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::Error> {
     println!("Fetching alliance information...");
     let a_url: String = format!(
         "https://esi.evetech.net/latest/alliances/{}/?datasource=tranquility",
         corporation_id
     );
-    let a_s: String = ureq::get(&a_url)
-        .call()
-        .expect("Corporation is not in an alliance")
-        .into_string()
-        .expect("");
+    let alliancer = reqwest::get(a_url).await?;
+    let alliance: AllianceInfo = alliancer.json().await?;
 
-    let a: Value =
-        serde_json::from_str(a_s.as_str()).expect("couldn't convert alliance info to json");
-    // println!("Alliance: {} - {}", a["name"], a["ticker"]);
 
-    a
+    Ok(alliance)
 }
 
 fn get_mr_kill_info(char_id: String) -> Value {
@@ -480,10 +544,12 @@ fn kill_resolve(kill_id: String, kill_hash: String) -> Value {
         "https://esi.evetech.net/latest/killmails/{}/{}/?datasource=tranquility",
         kill_id, kill_hash
     );
+
+
     // println!("{} {} {}", kill_id, kill_hash, url);
     let resp = ureq::get(&url)
         .call()
-        .expect("received an error while communicating with ccp")
+        .expect("Received an error while communicating with CCP - likely reasons are character has no kill history or an error with CCPs servers.")
         .into_string()
         .expect("couldn't convert return data to string");
 
