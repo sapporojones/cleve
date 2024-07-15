@@ -55,7 +55,7 @@ async fn main() -> Result<(), reqwest::Error> {
             evescout().await?;
         }
         None => {
-            println!("Default subcommand");
+            println!("No command specified.  Please supply a command or re-run with --help for help.");
         }
     }
 
