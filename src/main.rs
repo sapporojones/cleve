@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::time::SystemTime;
+// use ureq::Response;
+
 
 type Wrapper = Vec<Hole>;
 
@@ -34,6 +36,19 @@ struct Hole {
     pub updated_by_name: String,
     pub wh_exits_outward: bool,
     pub wh_type: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CharInfo {
+    pub alliance_id: i64,
+    pub birthday: String,
+    pub bloodline_id: i64,
+    pub corporation_id: i64,
+    pub description: String,
+    pub gender: String,
+    pub name: String,
+    pub race_id: i64,
+    pub security_status: f64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,7 +107,7 @@ async fn main() -> Result<(), reqwest::Error> {
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
         Some(Commands::Shlookup { character_name }) =>{
-            shlookup(character_name.as_str());
+            shlookup(character_name.as_str()).await?;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -203,7 +218,7 @@ async fn turnur() -> Result<(), reqwest::Error> {
 
 }
 
-fn shlookup(char_name: &str) {
+async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     // // test char id:
     // // sappo = 772506501
@@ -214,8 +229,9 @@ fn shlookup(char_name: &str) {
     // uncomment below to accept char id from user via command line args
     let ci = char_name;
     let char_id = char_search(ci);
-    let p: Value = public_info(char_id.as_str());
-    let corpid: Value = p["corporation_id"].clone();
+    let p  = public_info(char_id.as_str()).await?;
+
+    let corpid: i64 = p.corporation_id;
     let c: Value = corp_info(corpid.to_string().as_str());
 
     let alliance_info = if c["alliance_id"].is_null() {
@@ -245,14 +261,14 @@ fn shlookup(char_name: &str) {
 
     // println!("\n \n");
     println!("\n \nBasic info:");
-    println!("Name: {}", p["name"].to_string().replace("\"", ""));
-    let bday_raw: String = p["birthday"].to_string().replace("\"", "");
+    println!("Name: {}", p.name.to_string().replace("\"", ""));
+    let bday_raw: String = p.birthday.to_string().replace("\"", "");
     let bday_clean: String = date_parse(&bday_raw);
 
     println!("Birthday: {}", bday_clean);
 
 
-    let sec_status: String = p["security_status"].to_string();
+    let sec_status: String = p.security_status.to_string();
     println!("Security Status: {:}", &sec_status.as_str().replace("\"", ""));
 
     println!(
@@ -269,7 +285,7 @@ fn shlookup(char_name: &str) {
     println!("Corporation founded on: {}", corp_bday);
     println!(
         "Corporation evewho: https://evewho.com/corporation/{}",
-        p["corporation_id"]
+        p.corporation_id
     );
 
     if c["alliance_id"].is_null() {
@@ -319,7 +335,7 @@ fn shlookup(char_name: &str) {
     );
 
     println!("\n \n");
-
+    Ok(())
 
 }
 
@@ -348,20 +364,23 @@ fn char_search(char_name: &str) -> String {
     char_id.to_string()
 }
 
-fn public_info(char_id: &str) -> Value {
+async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
     println!("Fetching public info...");
     let p_url: String = format!(
         "https://esi.evetech.net/latest/characters/{char_id}/?datasource=tranquility"
     );
 
-    let ps: String = ureq::get(&p_url)
-        .call()
-        .expect("pubinfo call failed")
-        .into_string()
-        .expect("couldn't convert pubinfo to string");
-    let p: Value = serde_json::from_str(ps.as_str()).expect("couldn't convert pubinfo to json");
+    // let ps: String = ureq::get(&p_url)
+    //     .call()
+    //     .expect("pubinfo call failed")
+    //     .into_string()
+    //     .expect("couldn't convert pubinfo to string");
+    // let p: Value = serde_json::from_str(ps.as_str()).expect("couldn't convert pubinfo to json");
 
-    p
+    let p = reqwest::get(&p_url).await?;
+    let pr: CharInfo = p.json().await?;
+
+    Ok(pr)
 }
 
 fn corp_info(corporation_id: &str) -> Value {
