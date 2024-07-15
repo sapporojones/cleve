@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use clap::{Parser, Subcommand};
 
 type Wrapper = Vec<Hole>;
 
@@ -32,10 +33,34 @@ struct Hole {
     pub wh_type: String,
 }
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// For listing public travel wormhole routes from Thera or Turnur
+    Travel,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
-    evescout().await?;
-    
+
+    let cli = Cli::parse();
+    match &cli.command {
+        Some(Commands::Travel {  }) => {
+            evescout().await?;
+        }
+        None => {
+            println!("Default subcommand");
+        }
+    }
+
+
+
     Ok(())
 }
 
