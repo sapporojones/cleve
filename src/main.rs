@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::time::SystemTime;
+
 type Wrapper = Vec<Hole>;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -35,6 +36,26 @@ struct Hole {
     pub wh_type: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct EveWho {
+    pub info: Vec<Info>,
+    pub characters: Vec<Character>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Character {
+    pub character_id: i64,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Info {
+    pub alliance_id: i64,
+    pub name: String,
+    #[serde(rename = "memberCount")]
+    pub member_count: i64,
+}
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -60,30 +81,42 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
-
+    let start = SystemTime::now();
     let cli = Cli::parse();
     match &cli.command {
         Some(Commands::Travel {  }) => {
             evescout().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
         }
         Some(Commands::Shlookup { character_name }) =>{
-
             shlookup(character_name.as_str());
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
 
         }
         Some(Commands::Thera {  }) => {
             thera().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
         }
         Some(Commands::Turnur {  }) => {
             turnur().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
         }
         None => {
             println!("No command specified.  Please supply a command or re-run with --help for help.");
         }
     }
-
-
-
     Ok(())
 }
 
@@ -165,11 +198,13 @@ async fn turnur() -> Result<(), reqwest::Error> {
                  key.remaining_hours);
     }
     println!("\n");
+
     Ok(())
+
 }
 
 fn shlookup(char_name: &str) {
-    let start = SystemTime::now();
+
     // // test char id:
     // // sappo = 772506501
     // // billy = 1826057122
@@ -249,6 +284,7 @@ fn shlookup(char_name: &str) {
 
         let alliance_bday_raw: String = alliance_info["date_founded"].to_string().replace("\"", "");
         let alliance_bday: String = date_parse(&alliance_bday_raw);
+
         println!("Alliance founded on: {}", alliance_bday);
         println!(
             "Alliance evewho: https://evewho.com/alliance/{}",
@@ -283,9 +319,8 @@ fn shlookup(char_name: &str) {
     );
 
     println!("\n \n");
-    let end = SystemTime::now();
-    let duration = end.duration_since(start).unwrap();
-    println!("Completed in {} seconds.", duration.as_secs_f64());
+
+
 }
 
 fn char_search(char_name: &str) -> String {
@@ -486,3 +521,4 @@ fn item_lookup(item_id: String) -> Value {
         .expect("couldn't coerce search result to json");
     res
 }
+
