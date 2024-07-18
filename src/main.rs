@@ -1,12 +1,92 @@
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::{json, to_string, Value};
 use std::time::SystemTime;
+// use serde_json::Value::String;
+use std::string::String;
 // use ureq::Response;
 
+pub type SystemZkb = Vec<SystemZkbStruct>;
 
-type Wrapper = Vec<Hole>;
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SystemZkbStruct {
+    pub killmail_id: i64,
+    pub zkb: Zkb,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Zkb {
+    #[serde(rename = "locationID")]
+    pub location_id: i64,
+    pub hash: String,
+    pub fitted_value: f64,
+    pub dropped_value: f64,
+    pub destroyed_value: f64,
+    pub total_value: f64,
+    pub points: i64,
+    pub npc: bool,
+    pub solo: bool,
+    pub awox: bool,
+    pub labels: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SystemInfo {
+    pub constellation_id: i64,
+    pub name: String,
+    pub planets: Vec<Planet>,
+    pub position: Position,
+    pub security_class: String,
+    pub security_status: f64,
+    pub star_id: i64,
+    pub stargates: Vec<i64>,
+    pub system_id: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Planet {
+    pub planet_id: i64,
+    pub asteroid_belts: Option<Vec<i64>>,
+    pub moons: Option<Vec<i64>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Position {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+
+
+pub type SysJumps = Vec<Jumps>;
+
+#[derive(Serialize, Deserialize)]
+pub struct Jumps {
+    pub ship_jumps: i64,
+    pub system_id: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EveStatus {
+    pub players: i64,
+    pub server_version: String,
+    pub start_time: String,
+}
+
+pub type Kills = Vec<KillsStruct>;
+
+#[derive(Serialize, Deserialize)]
+pub struct KillsStruct {
+    pub npc_kills: i64,
+    pub pod_kills: i64,
+    pub ship_kills: i64,
+    pub system_id: i64,
+}
+
+type EveScout = Vec<Hole>;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Hole {
@@ -83,7 +163,8 @@ pub struct CorpInfo {
     pub alliance_id: Option<u64>,
     pub ceo_id: i64,
     pub creator_id: i64,
-    pub date_founded: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_founded: Option<String>,
     pub description: String,
     pub home_station_id: i64,
     pub member_count: i64,
@@ -113,6 +194,65 @@ struct Cli {
     command: Option<Commands>,
 }
 
+pub type Campaigns = Vec<CampaignStruct>;
+
+#[derive(Serialize, Deserialize)]
+pub struct CampaignStruct {
+    pub attackers_score: f64,
+    pub campaign_id: i64,
+    pub constellation_id: i64,
+    pub defender_id: i64,
+    pub defender_score: f64,
+    pub event_type: EventType,
+    pub solar_system_id: i64,
+    pub start_time: String,
+    pub structure_id: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventType {
+    #[serde(rename = "ihub_defense")]
+    IhubDefense,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CcpKillmail {
+    pub attackers: Vec<Attacker>,
+    pub killmail_id: i64,
+    pub killmail_time: String,
+    pub solar_system_id: i64,
+    pub victim: Victim,
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+pub struct Attacker {
+    pub damage_done: i64,
+    pub final_blow: bool,
+    pub security_status: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Victim {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alliance_id: Option<u64>,
+    pub character_id: i64,
+    pub corporation_id: i64,
+    pub damage_taken: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub faction_id: Option<i64>,
+    pub items: Vec<Option<serde_json::Value>>,
+    pub position: KillPosition,
+    pub ship_type_id: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+pub struct KillPosition {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// For listing public travel wormhole routes from Thera or Turnur
@@ -125,6 +265,12 @@ enum Commands {
     Shlookup {
         /// Name of character to lookup, if character name contains spaces quotation marks must be used
         character_name: String,
+    },
+    /// Retrieve current status of the Tranquility server
+    Status,
+    /// Retrieve information about a specified system
+    Sysinfo {
+        system_name: String,
     },
 
 }
@@ -163,6 +309,20 @@ async fn main() -> Result<(), reqwest::Error> {
             let duration = end.duration_since(start).unwrap();
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
+        Some(Commands::Status { }) => {
+            status().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
+        Some(Commands::Sysinfo {system_name}) => {
+            system_stats(system_name).await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
         None => {
             println!("No command specified.  Please supply a command or re-run with --help for help.");
         }
@@ -172,9 +332,9 @@ async fn main() -> Result<(), reqwest::Error> {
 
 async fn evescout() -> Result<(), reqwest::Error> {
     let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
-    let thera: Wrapper = rthera.json().await?;
+    let thera: EveScout = rthera.json().await?;
     let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
-    let turnur: Wrapper = rturnur.json().await?;
+    let turnur: EveScout = rturnur.json().await?;
 
     println!("\nThera\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
@@ -211,7 +371,7 @@ async fn evescout() -> Result<(), reqwest::Error> {
 
 async fn thera() -> Result<(), reqwest::Error> {
     let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
-    let thera: Wrapper = rthera.json().await?;
+    let thera: EveScout = rthera.json().await?;
     println!("\nThera\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
              "in_system",
@@ -232,7 +392,7 @@ async fn thera() -> Result<(), reqwest::Error> {
 
 async fn turnur() -> Result<(), reqwest::Error> {
     let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
-    let turnur: Wrapper = rturnur.json().await?;
+    let turnur: EveScout = rturnur.json().await?;
     println!("\nTurnur\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
              "in_system",
@@ -251,6 +411,17 @@ async fn turnur() -> Result<(), reqwest::Error> {
 
     Ok(())
 
+}
+
+async fn status() -> Result<(), reqwest::Error> {
+    let url = "https://esi.evetech.net/latest/status/?datasource=tranquility";
+    let statusr = reqwest::get(url).await?;
+    let status: EveStatus = statusr.json().await?;
+    println!("\nPlayers online: {}", status.players.to_string().as_str());
+    println!("Current server version: {}", status.server_version.to_string().as_str());
+    println!("Server start time: {}\n", status.start_time.to_string().as_str());
+
+    Ok(())
 }
 
 async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
@@ -277,17 +448,17 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     let zs: Value = get_zkb_stats(char_id.clone());
 
-    let mr_kill: Value = get_mr_kill_info(char_id.clone().to_string());
-    let mr_loss: Value = get_mr_loss_info(char_id.clone().to_string());
+    let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string()).await?;
+    let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string()).await?;
     // println!("{}", mr_kill["victim"]["ship_type_id"].to_string().replace("\"", ""));
     let killed_with_j: Value = item_lookup(
-        mr_kill["victim"]["ship_type_id"]
+        mr_kill.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
     );
     let killed_with: String = killed_with_j[0]["name"].to_string().replace("\"", "");
     let lost_ship_j: Value = item_lookup(
-        mr_loss["victim"]["ship_type_id"]
+        mr_loss.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
     );
@@ -315,7 +486,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     println!("Corporation members: {}", c.member_count);
     println!("Corporation tax rate: {}", c.tax_rate);
 
-    let corp_bday_raw: String = c.date_founded.to_string().replace("\"", "");
+    let corp_bday_raw: String = c.date_founded.unwrap().to_string().replace("\"", "");
     let corp_bday: String = date_parse(&corp_bday_raw);
     println!("Corporation founded on: {}", corp_bday);
     println!(
@@ -347,42 +518,6 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     };
 
-    // if c.alliance_id.is_none() {
-    //     println!("\nAlliance:  Corporation is not a member of an alliance.")
-    // } else {
-    //     // println!("Alliance: {} - {}", a["name"], a["ticker"])
-    //     println!(
-    //         "\nAlliance: {} [{}]",
-    //         alliance_info.name.to_string().replace("\"", ""),
-    //         alliance_info.ticker.to_string().replace("\"", "")
-    //     );
-    //
-    //     let alliance_bday_raw: String = alliance_info.date_founded.to_string().replace("\"", "");
-    //     let alliance_bday: String = date_parse(&alliance_bday_raw);
-    //
-    //     println!("Alliance founded on: {}", alliance_bday);
-    //     println!(
-    //         "Alliance evewho: https://evewho.com/alliance/{:?}",
-    //         c.alliance_id
-    //     )
-    // }
-
-    // println!(
-    //     "\nAlliance: {} [{}]",
-    //     alliance_info.name.to_string().replace("\"", ""),
-    //     alliance_info.ticker.to_string().replace("\"", "")
-    // );
-    //
-    // let alliance_bday_raw: String = alliance_info.date_founded.to_string().replace("\"", "");
-    // let alliance_bday: String = date_parse(&alliance_bday_raw);
-    //
-    // println!("Alliance founded on: {}", alliance_bday);
-    // println!(
-    //     "Alliance evewho: https://evewho.com/alliance/{}",
-    //     c.alliance_id.to_string().as_str()
-    // );
-
-
     println!("\n\nZKB Stats:");
     println!(
         "Character Zkb: https://zkillboard.com/character/{}/",
@@ -393,7 +528,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     println!("Solo kills: {}", zs["soloKills"]);
     println!("Solo losses: {}", zs["soloLosses"]);
 
-    let kt = mr_kill["killmail_time"].to_string();
+    let kt = mr_kill.killmail_time.to_string();
     let kt_clean: String = date_parse(&kt);
     let kill_diff: i64 = date_calc(kt.clone());
     println!(
@@ -401,7 +536,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         killed_with, &kt_clean, kill_diff
     );
 
-    let lt = mr_loss["killmail_time"].to_string();
+    let lt = mr_loss.killmail_time.to_string();
     let lt_clean: String = date_parse(&lt);
     let loss_diff = date_calc(lt.clone());
     println!(
@@ -458,21 +593,13 @@ async fn corp_info(corporation_id: &str) -> Result<CorpInfo, reqwest::Error> {
         corporation_id
     );
 
-    // let cs: String = ureq::get(&c_url)
-    //     .call()
-    //     .expect("this shouldn't fail")
-    //     .into_string()
-    //     .expect("couldn't coerce to string");
-    //
-    // let c: Value = serde_json::from_str(cs.as_str()).expect("couldn't convert to json");
-
     let corpr = reqwest::get(c_url).await?;
     let cr: CorpInfo = corpr.json().await?;
     Ok(cr)
 }
 
 async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::Error> {
-    println!("Fetching alliance information...");
+    // println!("Fetching alliance information...");
     let a_url: String = format!(
         "https://esi.evetech.net/latest/alliances/{}/?datasource=tranquility",
         corporation_id
@@ -484,7 +611,7 @@ async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::
     Ok(alliance)
 }
 
-fn get_mr_kill_info(char_id: String) -> Value {
+async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
     println!("Fetching most recent kill data...");
     let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
     let kills = ureq::get(&url)
@@ -500,29 +627,29 @@ fn get_mr_kill_info(char_id: String) -> Value {
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
     // println!("{} {} ", mr_id, mr_hash);
 
-    let mr_kill: Value = kill_resolve(mr_id.to_string(), mr_hash.to_string());
+    let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string()).await?;
 
-    mr_kill
+    Ok(mr_kill)
 }
 
-fn get_mr_loss_info(char_id: String) -> Value {
+async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
     println!("Fetching most recent loss data...");
     let url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
-    let losses = ureq::get(&url)
-        .call()
-        .expect("couldn't retrieve zkb data for this character for some reason...")
-        .into_string()
-        .expect("couldn't convert zkb info to json");
+    // let losses = ureq::get(&url)
+    //     .call()
+    //     .expect("couldn't retrieve zkb data for this character for some reason...")
+    //     .into_string()
+    //     .expect("couldn't convert zkb info to json");
 
-    let zkb: Value =
-        serde_json::from_str(losses.as_str()).expect("couldn't convert zkb data to json");
+    let losses = reqwest::get(url).await?;
+    let zkb: Value = losses.json().await?;
 
     let mr_id: String = zkb[0]["killmail_id"].to_string();
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
 
-    let mr_loss: Value = kill_resolve(mr_id.to_string(), mr_hash.to_string());
+    let mr_loss: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string()).await?;
 
-    mr_loss
+    Ok(mr_loss)
 }
 
 fn get_zkb_stats(char_id: String) -> Value {
@@ -539,7 +666,7 @@ fn get_zkb_stats(char_id: String) -> Value {
     zkb
 }
 
-fn kill_resolve(kill_id: String, kill_hash: String) -> Value {
+async fn kill_resolve(kill_id: String, kill_hash: String) -> Result<CcpKillmail, reqwest::Error> {
     let url = format!(
         "https://esi.evetech.net/latest/killmails/{}/{}/?datasource=tranquility",
         kill_id, kill_hash
@@ -547,16 +674,20 @@ fn kill_resolve(kill_id: String, kill_hash: String) -> Value {
 
 
     // println!("{} {} {}", kill_id, kill_hash, url);
-    let resp = ureq::get(&url)
-        .call()
-        .expect("Received an error while communicating with CCP - likely reasons are character has no kill history or an error with CCPs servers.")
-        .into_string()
-        .expect("couldn't convert return data to string");
+    // let resp = ureq::get(&url)
+    //     .call()
+    //     .expect("Received an error while communicating with CCP - likely reasons are character has no kill history or an error occurred with CCPs servers.");
+        // .into_string()
+        // .expect("couldn't convert return data to string");
 
-    let kill_info: Value =
-        serde_json::from_str(resp.as_str()).expect("couldn't convert response data to json");
+    let resp = reqwest::get(url).await?;
 
-    kill_info
+    // let kill_info: Value =
+    //     serde_json::from_str(resp.as_str()).expect("couldn't convert response data to json");
+
+    let kill_info: CcpKillmail = resp.json().await?;
+
+    Ok(kill_info)
 }
 
 fn date_calc(date_string: String) -> i64 {
@@ -606,4 +737,180 @@ fn item_lookup(item_id: String) -> Value {
         .expect("couldn't coerce search result to json");
     res
 }
+
+fn name_lookup(item_name: String) -> Value {
+    let ps = format!("[\"{}\"]", item_name);
+    let payload = json!(ps);
+    let pl = payload.as_str().unwrap();
+    // println!("{}", pl);
+    let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
+    let res: Value = ureq::post(url)
+        .set("Accept", "application/json")
+        .set("Accept-Language", "en")
+        .set("Content-Type", "application/json")
+        .set("Cache-Control", "no-cache")
+        .send_string(&pl)
+        .expect("there was an error handling the response from ccp")
+        .into_json()
+        .expect("couldn't coerce search result to json");
+    res
+}
+
+async fn get_jumps(system_id: &str) -> Result<String, reqwest::Error> {
+    let url = "https://esi.evetech.net/latest/universe/system_jumps/?datasource=tranquility";
+    let sysjumps = reqwest::get(url).await?;
+    let jumpstruct: SysJumps = sysjumps.json().await?;
+
+    let mut j: i64 = 0;
+    for key in jumpstruct.iter() {
+        if key.system_id.to_string().as_str() == system_id {
+            j = key.ship_jumps;
+
+        };
+    };
+    let jumps: String = j.to_string();
+    Ok(jumps.to_string())
+}
+
+async fn get_gates(system_id: &str) -> Result<String, reqwest::Error> {
+    let url = format!("https://esi.evetech.net/latest/universe/systems/{system_id}/");
+    let gater = reqwest::get(url).await?;
+    let gates: SystemInfo = gater.json().await?;
+    let num_gates = gates.stargates.len().to_string();
+    Ok(num_gates)
+}
+
+async fn get_num_kills(system_id: &str) -> Result<String, reqwest::Error> {
+    let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
+    let killsr = reqwest::get(url).await?;
+    let killsj: Kills = killsr.json().await?;
+    let mut k: i64 = 0;
+    for key in killsj.iter() {
+        if key.system_id.to_string().as_str() == system_id {
+            k = key.ship_kills;
+        };
+    };
+    let kills: String = k.to_string();
+    Ok(kills)
+}
+
+async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
+    let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
+    let killsr = reqwest::get(url).await?;
+    let killsj: Kills = killsr.json().await?;
+    let mut k: i64 = 0;
+    for key in killsj.iter() {
+        if key.system_id.to_string().as_str() == system_id {
+            k = key.npc_kills;
+        };
+    };
+    let kills: String = k.to_string();
+    Ok(kills)
+}
+
+async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> {
+    let url = format!("https://zkillboard.com/api/solarSystemID/{system_id}/");
+    let zkbsysr = reqwest::get(url).await?;
+    let zkbsysj: SystemZkb = zkbsysr.json().await?;
+    Ok(zkbsysj)
+
+}
+
+async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
+    let system_id_lookup = name_lookup(system_name.to_string());
+
+    let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
+
+    let system_zkb = get_system_kills(system_id.as_str()).await?;
+
+    let ship_kills = get_num_kills(system_id.as_str()).await?;
+
+    let npc_kills = get_npc_kills(system_id.as_str()).await?;
+
+    let system_jumps = get_jumps(system_id.as_str()).await?;
+
+    let system_gates = get_gates(system_id.as_str()).await?;
+
+    let mut ccp_kills: Vec<CcpKillmail> = Vec::with_capacity(5);
+    let mut kill_counter: i32 = 0;
+
+    for key in &system_zkb {
+        let k = kill_resolve(key.killmail_id.to_string(), key.zkb.hash.clone()).await?;
+        ccp_kills.push(k);
+
+        kill_counter += 1;
+        if kill_counter == 5 {
+            break
+        }
+    };
+
+
+    let mut ship = String::new();
+    let mut char = String::new();
+    let mut corp = String::new();
+    let mut alli = String::new();
+
+    let mut outputwrapper = Vec::new();
+    let mut alli = String::new();
+    for kill in ccp_kills {
+        let mut output = Vec::new();
+        let ship = item_lookup(kill.victim.ship_type_id.to_string());
+        let char = item_lookup(kill.victim.character_id.to_string());
+        let corp = item_lookup(kill.victim.corporation_id.to_string());
+        let mut alli = String::new();
+
+        match kill.victim.alliance_id {
+            Some(i) => {
+                let x = item_lookup(kill.victim.alliance_id.unwrap().to_string());
+                alli = x[0]["name"].to_string()
+
+            }
+            None => {
+                "None";
+            }
+        }
+        // let alli = item_lookup(kill.victim.alliance_id.unwrap().to_string());
+        output.push(kill.killmail_time.to_string());
+        output.push(ship[0]["name"].to_string());
+        output.push(char[0]["name"].to_string());
+        output.push(corp[0]["name"].to_string());
+        output.push(alli);
+        outputwrapper.push(output);
+        // println!("{:<20} {:<15} {:<15} {:<15} {:<15}",
+        //             kill.killmail_time,
+        //             ship[0]["name"],
+        //             char[0]["name"],
+        //             corp[0]["name"],
+        //             alli[0]["name"],
+        // );
+
+    };
+    println!("\nMost recent kill info for {system_name}:\n{:<25} {:<20} {:<25} {:<37} {:<25}",
+             "Kill Age:",
+             "Victim Ship:",
+             "Victim Name:",
+             "Victim Corp:",
+             "Victim Alliance:");
+
+    for kill in outputwrapper{
+
+        println!("{:<25} {:<20} {:<25} {:<37} {:<25}",
+            kill.get(0).unwrap().as_str().replace("\"", ""),
+            kill.get(1).unwrap().as_str().replace("\"", ""),
+            kill.get(2).unwrap().as_str().replace("\"", ""),
+            kill.get(3).unwrap().as_str().replace("\"", ""),
+            kill.get(4).unwrap().as_str().replace("\"", "")
+        );
+
+
+    }
+    // println!("{:<25} {:<25} {:<25} {:<25} {:<25}");
+
+    println!("\nShips destroyed last hour: {ship_kills}");
+    println!("NPCs destroyed last hour: {npc_kills}");
+    println!("Jumps last hour: {system_jumps}");
+    println!("Number of stargates in system: {system_gates}\n");
+    Ok(())
+}
+
 
