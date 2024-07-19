@@ -441,7 +441,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     // let char_id: &str = "772506501";
     // uncomment below to accept char id from user via command line args
     let ci = char_name;
-    let char_id = char_search(ci);
+    let char_id = char_search(ci, client.clone()).await?;
     let p: CharInfo  = public_info(char_id.as_str()).await?;
 
     let corpid: i64 = p.corporation_id;
@@ -450,10 +450,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     let aid = c.alliance_id.clone();
 
-
-    // TODO: check for alliance id in corp info
-
-    let zs: Value = get_zkb_stats(char_id.clone());
+    let zs: Value = get_zkb_stats(char_id.clone()).await?;
 
     let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string()).await?;
     let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string()).await?;
@@ -558,29 +555,37 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
 }
 
-fn char_search(char_name: &str) -> String {
+async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest::Error> {
     let ps = format!("[{:?}]", char_name);
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
     println!("Searching for {:?}...", char_name);
 
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
-    let res: Value = ureq::post(url)
-        .set("Accept", "application/json")
-        .set("Accept-Language", "en")
-        .set("Content-Type", "application/json")
-        .set("Cache-Control", "no-cache")
-        .send_string(pl)
-        .expect("there was an error handling the response from ccp")
-        .into_json()
-        .expect("couldn't coerce search result to json");
+    // let res: Value = ureq::post(url)
+    //     .set("Accept", "application/json")
+    //     .set("Accept-Language", "en")
+    //     .set("Content-Type", "application/json")
+    //     .set("Cache-Control", "no-cache")
+    //     .send_string(pl)
+    //     .expect("there was an error handling the response from ccp")
+    //     .into_json()
+    //     .expect("couldn't coerce search result to json");
+    //
+    // let rj = &res["characters"];
+    // let rout: Value = json!(rj);
+    //
+    // let char_id: &str = &rout[0]["id"].to_string();
 
-    let rj = &res["characters"];
-    let rout: Value = json!(rj);
+    let resp = client.post(url)
+        .body(ps)
+        .send()
+        .await?;
+    let lookup: Value = resp.json().await?;
+    let char_id = lookup["characters"][0]["id"].to_string();
 
-    let char_id: &str = &rout[0]["id"].to_string();
     println!("{:?} found as {:?}...", char_name, char_id);
-    char_id.to_string()
+    Ok(char_id)
 }
 
 async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
@@ -623,14 +628,17 @@ async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::
 async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
     println!("Fetching most recent kill data...");
     let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
-    let kills = ureq::get(&url)
-        .call()
-        .expect("couldn't retrieve zkb data for this character for some reason...")
-        .into_string()
-        .expect("couldn't convert zkb info to json");
+    // let kills = ureq::get(&url)
+    //     .call()
+    //     .expect("couldn't retrieve zkb data for this character for some reason...")
+    //     .into_string()
+    //     .expect("couldn't convert zkb info to json");
+    //
+    // let zkb: Value =
+    //     serde_json::from_str(kills.as_str()).expect("couldn't convert zkb data to json");
 
-    let zkb: Value =
-        serde_json::from_str(kills.as_str()).expect("couldn't convert zkb data to json");
+    let kills = reqwest::get(url).await?;
+    let zkb: Value = kills.json().await?;
 
     let mr_id: String = zkb[0]["killmail_id"].to_string();
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
@@ -661,18 +669,21 @@ async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error
     Ok(mr_loss)
 }
 
-fn get_zkb_stats(char_id: String) -> Value {
+async fn get_zkb_stats(char_id: String) -> Result<Value, reqwest::Error> {
     println!("Fetching zkill stats data...");
     let url = format!("https://zkillboard.com/api/stats/characterID/{}/", char_id);
-    let st = ureq::get(&url)
-        .call()
-        .expect("couldn't retrieve zkb data for this character for some reason...")
-        .into_string()
-        .expect("couldn't convert json output to string");
+    // let st = ureq::get(&url)
+    //     .call()
+    //     .expect("couldn't retrieve zkb data for this character for some reason...")
+    //     .into_string()
+    //     .expect("couldn't convert json output to string");
+    //
+    // let zkb = serde_json::from_str(st.as_str()).expect("couldn't convert zkb data to json");
 
-    let zkb = serde_json::from_str(st.as_str()).expect("couldn't convert zkb data to json");
+    let resp = reqwest::get(url).await?;
+    let zkb = resp.json().await?;
 
-    zkb
+    Ok(zkb)
 }
 
 async fn kill_resolve(kill_id: String, kill_hash: String) -> Result<CcpKillmail, reqwest::Error> {
@@ -915,7 +926,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
             char = "None".to_string()
         } else {
             let resp = item_lookup(kill.victim.character_id.unwrap().to_string(), client.clone()).await?;
-            
+
             char = resp[0]["name"].to_string()
 
         }
