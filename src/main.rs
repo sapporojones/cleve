@@ -819,21 +819,26 @@ async fn get_gates(system_id: &str) -> Result<String, reqwest::Error> {
     Ok(num_gates)
 }
 
-async fn get_num_kills(system_id: &str) -> Result<String, reqwest::Error> {
+async fn get_num_kills(system_id: &str) -> Result<Vec<String>, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
     let killsr = reqwest::get(url).await?;
     let killsj: Value = killsr.json().await?;
-    let mut k: i64 = 0;
+
+    let mut kills_vec: Vec<String> = Vec::new();
     for key in killsj.as_object().iter() {
         if key["system_id"].to_string().as_str() == system_id {
-            k = key["ship_kills"].as_i64().unwrap();
+
+            kills_vec.push(key["npc_kills"].to_string());
+            kills_vec.push(key["pod_kills"].to_string());
+            kills_vec.push(key["ship_kills"].to_string());
+
         };
     };
 
 
 
-    let kills: String = k.to_string();
-    Ok(kills)
+
+    Ok(kills_vec)
 }
 
 async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
@@ -888,9 +893,9 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     println!("Looking up system id...");
     let system_zkb = get_system_kills(system_id.as_str()).await?;
     println!("Retrieving zkillboard for {system_name}...");
-    let ship_kills = get_num_kills(system_id.as_str()).await?;
+    let kills = get_num_kills(system_id.as_str()).await?;
     println!("Retrieving total number of ships killed in system in the last hour...");
-    let npc_kills = get_npc_kills(system_id.as_str()).await?;
+    // let npc_kills = get_npc_kills(system_id.as_str()).await?;
     println!("Retrieving total number of NPCs killed in system in the last hour...");
     let system_jumps = get_jumps(system_id.as_str()).await?;
     println!("Retrieving total number of jumps in system in the last hour...");
@@ -985,11 +990,33 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
     }
     // println!("{:<25} {:<25} {:<25} {:<25} {:<25}");
+    let mut npckills = String::new();
+    let mut podkills = String::new();
+    let mut shipkills = String::new();
+    if kills.get(0).is_none() {
+        npckills = 0.to_string()
+    } else {
+        npckills = kills.get(0).unwrap().to_string();
+    };
+    if kills.get(1).is_none() {
+        podkills = 0.to_string()
+    } else {
+        podkills = kills.get(0).unwrap().to_string();
+    };
+    if kills.get(0).is_none() {
+        shipkills = 0.to_string()
+    } else {
+        shipkills = kills.get(0).unwrap().to_string();
+    };
+    // let npckills = kills.get(0).unwrap().to_string();
+    // let podkills = kills.get(1).unwrap().to_string();
+    // let shipkills = kills.get(3).unwrap().to_string();
 
-    println!("\nShips destroyed last hour: {ship_kills}");
-    println!("NPCs destroyed last hour: {npc_kills}");
-    println!("Jumps last hour: {system_jumps}");
-    println!("Number of stargates in system: {system_gates}\n");
+    println!("\nShips destroyed last hour: \t{:<30}", shipkills);
+    println!("Capsules destroyed last hour: \t{:<30}", podkills);
+    println!("NPCs destroyed last hour: \t{:<30}", npckills);
+    println!("Jumps last hour: \t\t{:<30}", system_jumps);
+    println!("Number of stargates in system: \t{:<30}\n", system_gates);
     Ok(())
 }
 
