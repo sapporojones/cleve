@@ -1,4 +1,6 @@
 use std::fmt::Error;
+use std::io::Write;
+use std::io;
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
 use chrono::Utc;
@@ -8,6 +10,39 @@ use std::time::SystemTime;
 use std::string::String;
 use reqwest::Client;
 // use ureq::Response;
+
+#[derive(Serialize, Deserialize)]
+pub struct RegionInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub constellations: Option<Vec<i64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub name: String,
+    pub region_id: i64,
+}
+
+
+#[derive(Serialize, Deserialize)]
+pub struct ConstInfo {
+    pub constellation_id: i64,
+    pub name: String,
+    pub position: Position,
+    pub region_id: i64,
+    pub systems: Vec<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ConstPlanet {
+    pub moons: Vec<i64>,
+    pub planet_id: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ConstPosition {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
 
 pub type SystemZkb = Vec<SystemZkbStruct>;
 
@@ -50,6 +85,7 @@ pub struct SystemInfo {
 #[derive(Serialize, Deserialize)]
 pub struct Planet {
     pub planet_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub asteroid_belts: Option<Vec<i64>>,
     pub moons: Option<Vec<i64>>,
 }
@@ -268,13 +304,15 @@ enum Commands {
     Thera,
     /// For Turnur specific wormhole information
     Turnur,
+    /// Currently known sovereignty timers
+    Timers,
+    /// Retrieve current status of the Tranquility server
+    Status,
     /// For information about a character
     Pilot {
         /// Name of character to lookup, if character name contains spaces quotation marks must be used
         character_name: String,
     },
-    /// Retrieve current status of the Tranquility server
-    Status,
     /// Retrieve information about a specified system
     Sysinfo {
         system_name: String,
@@ -325,6 +363,13 @@ async fn main() -> Result<(), reqwest::Error> {
         }
         Some(Commands::Sysinfo {system_name}) => {
             system_stats(system_name).await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
+        Some(Commands::Timers { }) => {
+            timers().await?;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -536,7 +581,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     let kt = mr_kill.killmail_time.to_string();
     let kt_clean: String = date_parse(&kt);
-    let kill_diff: i64 = date_calc(kt.clone());
+    let kill_diff: i64 = date_calc(kt.clone()).await?;
     println!(
         "\nMost recently killed a(n) {} on {} which was {} days ago",
         killed_with, &kt_clean, kill_diff
@@ -544,7 +589,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     let lt = mr_loss.killmail_time.to_string();
     let lt_clean: String = date_parse(&lt);
-    let loss_diff = date_calc(lt.clone());
+    let loss_diff = date_calc(lt.clone()).await?;
     println!(
         "Most recently lost a(n) {} on {} which was {} days ago",
         lost_ship, &lt_clean, loss_diff
@@ -710,7 +755,7 @@ async fn kill_resolve(kill_id: String, kill_hash: String) -> Result<CcpKillmail,
     Ok(kill_info)
 }
 
-fn date_calc(date_string: String) -> i64 {
+async fn date_calc(date_string: String) -> Result<i64, reqwest::Error> {
     let dt: Vec<&str> = date_string.split("T").collect();
     let date = dt[0].replace("\"", "");
     let today = Utc::now();
@@ -727,7 +772,7 @@ fn date_calc(date_string: String) -> i64 {
     // let months = remaining_days / 30;
     // let rem_days = remaining_days % 30;
 
-    days
+    Ok(days)
 }
 
 fn date_parse(date_string: &String) -> String {
@@ -744,7 +789,7 @@ async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::
     let ps = format!("[{}]", item_id);
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
-    // println!("{}", pl);
+
     let url = "https://esi.evetech.net/latest/universe/names/?datasource=tranquility&language=en";
     // let res: Value = ureq::post(url)
     //     .set("Accept", "application/json")
@@ -756,14 +801,12 @@ async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::
     //     .into_json()
     //     .expect("couldn't coerce search result to json");
 
-
     let resp = client.post(url)
         .body(ps)
         .send()
         .await?;
 
     let res = resp.json().await?;
-
 
     Ok(res)
 }
@@ -864,7 +907,7 @@ async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> 
 
 }
 
-fn killmail_time_calc(date_string: String) -> String {
+async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Error> {
     let dt: Vec<&str> = date_string.split("T").collect();
     let date = dt[0].replace("\"", "");
 
@@ -882,7 +925,7 @@ fn killmail_time_calc(date_string: String) -> String {
     let ss = diff.num_seconds() % 60;
     let delta = format!("{hh:02}h{mm:02}m{ss:02}s ago");
 
-    delta
+    Ok(delta)
 }
 
 async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
@@ -951,7 +994,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         }
         // let alli = item_lookup(kill.victim.alliance_id.unwrap().to_string());
 
-        let killdelta = killmail_time_calc(kill.killmail_time);
+        let killdelta = killmail_time_calc(kill.killmail_time).await?;
         output.push(killdelta);
 
         // output.push(kill.killmail_time.to_string());
@@ -1020,4 +1063,106 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     Ok(())
 }
 
+async fn get_campaigns() -> Result<Campaigns, reqwest::Error> {
+    let url = "https://esi.evetech.net/latest/sovereignty/campaigns/?datasource=tranquility";
+    let response = reqwest::get(url).await?;
+    let timers: Campaigns = response.json().await?;
+    Ok(timers)
 
+}
+
+async fn get_system(system_id: &str) -> Result<SystemInfo, reqwest::Error> {
+    let url = format!("https://esi.evetech.net/latest/universe/systems/{system_id}/");
+    let response = reqwest::get(url).await?;
+    let systeminfo: SystemInfo = response.json().await?;
+
+    Ok(systeminfo)
+}
+
+async fn get_const(const_id: &str) -> Result<ConstInfo, reqwest::Error> {
+    let url = format!("https://esi.evetech.net/latest/universe/constellations/{const_id}/");
+    let response = reqwest::get(url).await?;
+    let constinfo: ConstInfo = response.json().await?;
+
+    Ok(constinfo)
+}
+
+async fn get_region(const_id: &str) -> Result<RegionInfo, reqwest::Error> {
+    let url = format!("https://esi.evetech.net/latest/universe/regions/{const_id}/");
+    let response = reqwest::get(url).await?;
+
+    let regioninfo: RegionInfo = response.json().await?;
+
+    Ok(regioninfo)
+}
+
+async fn timer_time_calc(date_string: String) -> Result<String, reqwest::Error> {
+    let dt: Vec<&str> = date_string.split("T").collect();
+    let date = dt[0].replace("\"", "");
+
+    let today = Utc::now();
+    let todate = today.naive_utc();
+
+    let pfs = chrono::NaiveDateTime::parse_from_str;
+
+    let naive_dt = pfs(&date_string, "%Y-%m-%dT%H:%M:%SZ").expect("unable to parse kill date");
+
+    let diff = naive_dt - todate;
+    // let delta = diff.to_string();
+    let hh = diff.num_hours();
+    let mm = diff.num_minutes() % 60;
+    let ss = diff.num_seconds() % 60;
+    let delta = format!("{hh:02}h{mm:02}m{ss:02}s");
+
+    Ok(delta)
+}
+
+async fn timers() -> Result<(), reqwest::Error> {
+    let client = reqwest::Client::new();
+
+
+    let current_timers = get_campaigns().await?;
+
+
+    let mut output: Vec<String> = Vec::new();
+    print!("Processing timers... ");
+    io::stdout().flush().unwrap();
+    for timer in current_timers.iter() {
+        let system_info: SystemInfo = get_system(timer.solar_system_id.to_string().as_str()).await?;
+        let const_info: ConstInfo = get_const(system_info.constellation_id.to_string().as_str()).await?;
+        let region_info: RegionInfo = get_region(const_info.region_id.to_string().as_str()).await?;
+
+        let system_name = system_info.name;
+
+        let region_name = region_info.name;
+        let defender_value = item_lookup(timer.defender_id.to_string(), client.clone()).await?;
+        let defender = defender_value[0]["name"].to_string();
+
+        let timer_start = timer_time_calc(timer.start_time.to_string()).await?;
+
+
+        output.push(format!("{:<20} {:<20} {:<20} {:<50} {:<20}",
+                timer_start,
+                 region_name,
+                 system_name,
+                 defender.replace("\"", ""),
+                 timer.attackers_score.to_string().as_str()
+
+        ));
+        print!("*");
+        io::stdout().flush().unwrap();
+    }
+
+    println!("\n{:<20} {:<20} {:<20} {:<50} {:<20}",
+            "timer start:",
+             "region:",
+             "solar_system:",
+             "defender:",
+             "attacker_score:");
+    for line in output.iter() {
+        print!("\n{}", line);
+        io::stdout().flush().unwrap();
+    }
+    println!("\n");
+    Ok(())
+}
