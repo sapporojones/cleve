@@ -1,3 +1,4 @@
+use std::fmt::Error;
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
 use chrono::Utc;
@@ -80,10 +81,14 @@ pub type Kills = Vec<KillsStruct>;
 
 #[derive(Serialize, Deserialize)]
 pub struct KillsStruct {
-    pub npc_kills: i64,
-    pub pod_kills: i64,
-    pub ship_kills: i64,
-    pub system_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub npc_kills: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pod_kills: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ship_kills: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_id: Option<i64>,
 }
 
 type EveScout = Vec<Hole>;
@@ -262,7 +267,7 @@ enum Commands {
     /// For Turnur specific wormhole information
     Turnur,
     /// For information about a character
-    Shlookup {
+    Pilot {
         /// Name of character to lookup, if character name contains spaces quotation marks must be used
         character_name: String,
     },
@@ -287,7 +292,7 @@ async fn main() -> Result<(), reqwest::Error> {
             let duration = end.duration_since(start).unwrap();
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
-        Some(Commands::Shlookup { character_name }) =>{
+        Some(Commands::Pilot { character_name }) =>{
             shlookup(character_name.as_str()).await?;
 
             let end = SystemTime::now();
@@ -455,13 +460,13 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         mr_kill.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
-    );
+    ).await?;
     let killed_with: String = killed_with_j[0]["name"].to_string().replace("\"", "");
     let lost_ship_j: Value = item_lookup(
         mr_loss.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
-    );
+    ).await?;
     // println!("{}", lost_ship_j.to_string());
     let lost_ship: String = lost_ship_j[0]["name"].to_string().replace("\"", "");
 
@@ -720,7 +725,7 @@ fn date_parse(date_string: &String) -> String {
     naive_dt.to_string()
 }
 
-fn item_lookup(item_id: String) -> Value {
+async fn item_lookup(item_id: String) -> Result<Value, reqwest::Error> {
     let ps = format!("[{}]", item_id);
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
@@ -735,10 +740,20 @@ fn item_lookup(item_id: String) -> Value {
         .expect("there was an error handling the response from ccp")
         .into_json()
         .expect("couldn't coerce search result to json");
-    res
+
+    // let client = reqwest::Client::new();
+    // let resp = client.post(url)
+    //     .json(pl)
+    //     .send()
+    //     .await?;
+
+    // let res = res.json().await?;
+
+
+    Ok(res)
 }
 
-fn name_lookup(item_name: String) -> Value {
+async fn name_lookup(item_name: String) -> Result<Value, reqwest::Error> {
     let ps = format!("[\"{}\"]", item_name);
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
@@ -753,7 +768,14 @@ fn name_lookup(item_name: String) -> Value {
         .expect("there was an error handling the response from ccp")
         .into_json()
         .expect("couldn't coerce search result to json");
-    res
+
+    // let client = reqwest::Client::new();
+    // let res = client.post(url)
+    //     .json(pl)
+    //     .send()
+    //     .await?;
+
+    Ok(res)
 }
 
 async fn get_jumps(system_id: &str) -> Result<String, reqwest::Error> {
@@ -783,13 +805,16 @@ async fn get_gates(system_id: &str) -> Result<String, reqwest::Error> {
 async fn get_num_kills(system_id: &str) -> Result<String, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
     let killsr = reqwest::get(url).await?;
-    let killsj: Kills = killsr.json().await?;
+    let killsj: Value = killsr.json().await?;
     let mut k: i64 = 0;
-    for key in killsj.iter() {
-        if key.system_id.to_string().as_str() == system_id {
-            k = key.ship_kills;
+    for key in killsj.as_object().iter() {
+        if key["system_id"].to_string().as_str() == system_id {
+            k = key["ship_kills"].as_i64().unwrap();
         };
     };
+
+
+
     let kills: String = k.to_string();
     Ok(kills)
 }
@@ -797,11 +822,11 @@ async fn get_num_kills(system_id: &str) -> Result<String, reqwest::Error> {
 async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
     let killsr = reqwest::get(url).await?;
-    let killsj: Kills = killsr.json().await?;
+    let killsj: Value = killsr.json().await?;
     let mut k: i64 = 0;
-    for key in killsj.iter() {
-        if key.system_id.to_string().as_str() == system_id {
-            k = key.npc_kills;
+    for key in killsj.as_object().iter() {
+        if key["system_id"].to_string().as_str() == system_id {
+            k = key["npc_kills"].as_i64().unwrap();
         };
     };
     let kills: String = k.to_string();
@@ -816,8 +841,29 @@ async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> 
 
 }
 
+fn killmail_time_calc(date_string: String) -> String {
+    let dt: Vec<&str> = date_string.split("T").collect();
+    let date = dt[0].replace("\"", "");
+
+    let today = Utc::now();
+    let todate = today.naive_utc();
+
+    let pfs = chrono::NaiveDateTime::parse_from_str;
+
+    let naive_dt = pfs(&date_string, "%Y-%m-%dT%H:%M:%SZ").expect("unable to parse kill date");
+
+    let diff = todate - naive_dt;
+    // let delta = diff.to_string();
+    let hh = diff.num_hours();
+    let mm = diff.num_minutes() % 60;
+    let ss = diff.num_seconds() % 60;
+    let delta = format!("{hh:02}h{mm:02}m{ss:02}s ago");
+
+    delta
+}
+
 async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
-    let system_id_lookup = name_lookup(system_name.to_string());
+    let system_id_lookup = name_lookup(system_name.to_string()).await?;
 
     let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
 
@@ -832,6 +878,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let system_gates = get_gates(system_id.as_str()).await?;
 
     let mut ccp_kills: Vec<CcpKillmail> = Vec::with_capacity(5);
+
     let mut kill_counter: i32 = 0;
 
     for key in &system_zkb {
@@ -853,15 +900,15 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let mut outputwrapper = Vec::new();
     let mut alli = String::new();
     for kill in ccp_kills {
-        let mut output = Vec::new();
-        let ship = item_lookup(kill.victim.ship_type_id.to_string());
-        let char = item_lookup(kill.victim.character_id.to_string());
-        let corp = item_lookup(kill.victim.corporation_id.to_string());
+        let mut output: Vec<String> = Vec::new();
+        let ship = item_lookup(kill.victim.ship_type_id.to_string()).await?;
+        let char = item_lookup(kill.victim.character_id.to_string()).await?;
+        let corp = item_lookup(kill.victim.corporation_id.to_string()).await?;
         let mut alli = String::new();
 
         match kill.victim.alliance_id {
             Some(i) => {
-                let x = item_lookup(kill.victim.alliance_id.unwrap().to_string());
+                let x = item_lookup(kill.victim.alliance_id.unwrap().to_string()).await?;
                 alli = x[0]["name"].to_string()
 
             }
@@ -870,7 +917,11 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
             }
         }
         // let alli = item_lookup(kill.victim.alliance_id.unwrap().to_string());
-        output.push(kill.killmail_time.to_string());
+
+        let killdelta = killmail_time_calc(kill.killmail_time);
+        output.push(killdelta);
+
+        // output.push(kill.killmail_time.to_string());
         output.push(ship[0]["name"].to_string());
         output.push(char[0]["name"].to_string());
         output.push(corp[0]["name"].to_string());
@@ -885,7 +936,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         // );
 
     };
-    println!("\nMost recent kill info for {system_name}:\n{:<25} {:<20} {:<25} {:<37} {:<25}",
+    println!("\nMost recent kill info for {system_name}:\n{:<15} {:<20} {:<25} {:<37} {:<25}",
              "Kill Age:",
              "Victim Ship:",
              "Victim Name:",
@@ -894,7 +945,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
     for kill in outputwrapper{
 
-        println!("{:<25} {:<20} {:<25} {:<37} {:<25}",
+        println!("{:<15} {:<20} {:<25} {:<37} {:<25}",
             kill.get(0).unwrap().as_str().replace("\"", ""),
             kill.get(1).unwrap().as_str().replace("\"", ""),
             kill.get(2).unwrap().as_str().replace("\"", ""),
