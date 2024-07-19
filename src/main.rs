@@ -883,23 +883,23 @@ fn killmail_time_calc(date_string: String) -> String {
 async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
     let system_id_lookup = name_lookup(system_name.to_string(), client.clone()).await?;
-
+    println!("Looking up system name...");
     let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
-
+    println!("Looking up system id...");
     let system_zkb = get_system_kills(system_id.as_str()).await?;
-
+    println!("Retrieving zkillboard for {system_name}...");
     let ship_kills = get_num_kills(system_id.as_str()).await?;
-
+    println!("Retrieving total number of ships killed in system in the last hour...");
     let npc_kills = get_npc_kills(system_id.as_str()).await?;
-
+    println!("Retrieving total number of NPCs killed in system in the last hour...");
     let system_jumps = get_jumps(system_id.as_str()).await?;
-
+    println!("Retrieving total number of jumps in system in the last hour...");
     let system_gates = get_gates(system_id.as_str()).await?;
-
+    println!("Determining number of available stargates...");
     let mut ccp_kills: Vec<CcpKillmail> = Vec::with_capacity(5);
 
     let mut kill_counter: i32 = 0;
-
+    println!("Resolving most recent kills in system...");
     for key in system_zkb.iter() {
         let k = kill_resolve(key.killmail_id.to_string(), key.zkb.hash.to_string()).await?;
         ccp_kills.push(k);
@@ -965,7 +965,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         // );
 
     };
-    println!("\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
+    println!("\n\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
              "Kill Age:",
              "Victim Ship:",
              "Victim Name:",
