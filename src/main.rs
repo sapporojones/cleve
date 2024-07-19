@@ -6,6 +6,7 @@ use serde_json::{json, to_string, Value};
 use std::time::SystemTime;
 // use serde_json::Value::String;
 use std::string::String;
+use reqwest::Client;
 // use ureq::Response;
 
 pub type SystemZkb = Vec<SystemZkbStruct>;
@@ -241,7 +242,8 @@ pub struct Attacker {
 pub struct Victim {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alliance_id: Option<u64>,
-    pub character_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub character_id: Option<i64>,
     pub corporation_id: i64,
     pub damage_taken: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -430,7 +432,7 @@ async fn status() -> Result<(), reqwest::Error> {
 }
 
 async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
-
+    let client = reqwest::Client::new();
     // // test char id:
     // // sappo = 772506501
     // // billy = 1826057122
@@ -460,12 +462,14 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         mr_kill.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
+        client.clone(),
     ).await?;
     let killed_with: String = killed_with_j[0]["name"].to_string().replace("\"", "");
     let lost_ship_j: Value = item_lookup(
         mr_loss.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
+        client.clone(),
     ).await?;
     // println!("{}", lost_ship_j.to_string());
     let lost_ship: String = lost_ship_j[0]["name"].to_string().replace("\"", "");
@@ -725,57 +729,59 @@ fn date_parse(date_string: &String) -> String {
     naive_dt.to_string()
 }
 
-async fn item_lookup(item_id: String) -> Result<Value, reqwest::Error> {
+async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[{}]", item_id);
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
     // println!("{}", pl);
     let url = "https://esi.evetech.net/latest/universe/names/?datasource=tranquility&language=en";
-    let res: Value = ureq::post(url)
-        .set("Accept", "application/json")
-        .set("Accept-Language", "en")
-        .set("Content-Type", "application/json")
-        .set("Cache-Control", "no-cache")
-        .send_string(&pl)
-        .expect("there was an error handling the response from ccp")
-        .into_json()
-        .expect("couldn't coerce search result to json");
+    // let res: Value = ureq::post(url)
+    //     .set("Accept", "application/json")
+    //     .set("Accept-Language", "en")
+    //     .set("Content-Type", "application/json")
+    //     .set("Cache-Control", "no-cache")
+    //     .send_string(&pl)
+    //     .expect("there was an error handling the response from ccp")
+    //     .into_json()
+    //     .expect("couldn't coerce search result to json");
 
-    // let client = reqwest::Client::new();
-    // let resp = client.post(url)
-    //     .json(pl)
-    //     .send()
-    //     .await?;
 
-    // let res = res.json().await?;
+    let resp = client.post(url)
+        .body(ps)
+        .send()
+        .await?;
+
+    let res = resp.json().await?;
 
 
     Ok(res)
 }
 
-async fn name_lookup(item_name: String) -> Result<Value, reqwest::Error> {
-    let ps = format!("[\"{}\"]", item_name);
+async fn name_lookup(item_name: String, client: Client) -> Result<Value, reqwest::Error> {
+    let ps = format!("[\"{item_name}\"]");
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
     // println!("{}", pl);
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
-    let res: Value = ureq::post(url)
-        .set("Accept", "application/json")
-        .set("Accept-Language", "en")
-        .set("Content-Type", "application/json")
-        .set("Cache-Control", "no-cache")
-        .send_string(&pl)
-        .expect("there was an error handling the response from ccp")
-        .into_json()
-        .expect("couldn't coerce search result to json");
+    // let res: Value = ureq::post(url)
+    //     .set("Accept", "application/json")
+    //     .set("Accept-Language", "en")
+    //     .set("Content-Type", "application/json")
+    //     .set("Cache-Control", "no-cache")
+    //     .send_string(&pl)
+    //     .expect("there was an error handling the response from ccp")
+    //     .into_json()
+    //     .expect("couldn't coerce search result to json");
 
-    // let client = reqwest::Client::new();
-    // let res = client.post(url)
-    //     .json(pl)
-    //     .send()
-    //     .await?;
 
-    Ok(res)
+    let res = client.post(url)
+        .body(ps)
+        .send()
+        .await?;
+
+    let lookup: Value = res.json().await?;
+
+    Ok(lookup)
 }
 
 async fn get_jumps(system_id: &str) -> Result<String, reqwest::Error> {
@@ -836,6 +842,7 @@ async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
 async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> {
     let url = format!("https://zkillboard.com/api/solarSystemID/{system_id}/");
     let zkbsysr = reqwest::get(url).await?;
+    // let zkbsysj: Value = zkbsysr.json().await?;
     let zkbsysj: SystemZkb = zkbsysr.json().await?;
     Ok(zkbsysj)
 
@@ -863,7 +870,8 @@ fn killmail_time_calc(date_string: String) -> String {
 }
 
 async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
-    let system_id_lookup = name_lookup(system_name.to_string()).await?;
+    let client = reqwest::Client::new();
+    let system_id_lookup = name_lookup(system_name.to_string(), client.clone()).await?;
 
     let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
 
@@ -881,8 +889,8 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
     let mut kill_counter: i32 = 0;
 
-    for key in &system_zkb {
-        let k = kill_resolve(key.killmail_id.to_string(), key.zkb.hash.clone()).await?;
+    for key in system_zkb.iter() {
+        let k = kill_resolve(key.killmail_id.to_string(), key.zkb.hash.to_string()).await?;
         ccp_kills.push(k);
 
         kill_counter += 1;
@@ -901,14 +909,23 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let mut alli = String::new();
     for kill in ccp_kills {
         let mut output: Vec<String> = Vec::new();
-        let ship = item_lookup(kill.victim.ship_type_id.to_string()).await?;
-        let char = item_lookup(kill.victim.character_id.to_string()).await?;
-        let corp = item_lookup(kill.victim.corporation_id.to_string()).await?;
+        let ship = item_lookup(kill.victim.ship_type_id.to_string(), client.clone()).await?;
+        // dbg!(kill.clone());
+        if kill.victim.character_id.is_none() {
+            char = "None".to_string()
+        } else {
+            let resp = item_lookup(kill.victim.character_id.unwrap().to_string(), client.clone()).await?;
+            
+            char = resp[0]["name"].to_string()
+
+        }
+        // let char = item_lookup(kill.victim.character_id.to_string(), client.clone()).await?;
+        let corp = item_lookup(kill.victim.corporation_id.to_string(), client.clone()).await?;
         let mut alli = String::new();
 
         match kill.victim.alliance_id {
             Some(i) => {
-                let x = item_lookup(kill.victim.alliance_id.unwrap().to_string()).await?;
+                let x = item_lookup(kill.victim.alliance_id.unwrap().to_string(), client.clone()).await?;
                 alli = x[0]["name"].to_string()
 
             }
@@ -923,7 +940,8 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
         // output.push(kill.killmail_time.to_string());
         output.push(ship[0]["name"].to_string());
-        output.push(char[0]["name"].to_string());
+        // output.push(char[0]["name"].to_string());
+        output.push(char.to_string());
         output.push(corp[0]["name"].to_string());
         output.push(alli);
         outputwrapper.push(output);
@@ -936,7 +954,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         // );
 
     };
-    println!("\nMost recent kill info for {system_name}:\n{:<15} {:<20} {:<25} {:<37} {:<25}",
+    println!("\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
              "Kill Age:",
              "Victim Ship:",
              "Victim Name:",
@@ -945,7 +963,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
     for kill in outputwrapper{
 
-        println!("{:<15} {:<20} {:<25} {:<37} {:<25}",
+        println!("{:<15} {:<30} {:<25} {:<37} {:<25}",
             kill.get(0).unwrap().as_str().replace("\"", ""),
             kill.get(1).unwrap().as_str().replace("\"", ""),
             kill.get(2).unwrap().as_str().replace("\"", ""),
