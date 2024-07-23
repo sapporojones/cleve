@@ -9,7 +9,7 @@ use std::time::SystemTime;
 // use serde_json::Value::String;
 use std::string::String;
 use reqwest::Client;
-// use ureq::Response;
+
 
 #[derive(Serialize, Deserialize)]
 pub struct RegionInfo {
