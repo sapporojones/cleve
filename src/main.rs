@@ -467,8 +467,8 @@ async fn turnur() -> Result<(), reqwest::Error> {
 
 async fn status() -> Result<(), reqwest::Error> {
     let url = "https://esi.evetech.net/latest/status/?datasource=tranquility";
-    let statusr = reqwest::get(url).await?;
-    let status: EveStatus = statusr.json().await?;
+    let status_response = reqwest::get(url).await?;
+    let status: EveStatus = status_response.json().await?;
     println!("\nPlayers online: {}", status.players.to_string().as_str());
     println!("Current server version: {}", status.server_version.to_string().as_str());
     println!("Server start time: {}\n", status.start_time.to_string().as_str());
@@ -579,20 +579,20 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     println!("Solo kills: {}", zs["soloKills"]);
     println!("Solo losses: {}", zs["soloLosses"]);
 
-    let kt = mr_kill.killmail_time.to_string();
-    let kt_clean: String = date_parse(&kt);
+    let killtime = mr_kill.killmail_time.to_string();
+    let killtime_clean: String = date_parse(&kt);
     let kill_diff: i64 = date_calc(kt.clone()).await?;
     println!(
         "\nMost recently killed a(n) {} on {} which was {} days ago",
-        killed_with, &kt_clean, kill_diff
+        killed_with, &killtime_clean, kill_diff
     );
 
-    let lt = mr_loss.killmail_time.to_string();
-    let lt_clean: String = date_parse(&lt);
+    let losstime = mr_loss.killmail_time.to_string();
+    let losstime_clean: String = date_parse(&lt);
     let loss_diff = date_calc(lt.clone()).await?;
     println!(
         "Most recently lost a(n) {} on {} which was {} days ago",
-        lost_ship, &lt_clean, loss_diff
+        lost_ship, &losstime_clean, loss_diff
     );
 
     println!("\n \n");
@@ -601,29 +601,15 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 }
 
 async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest::Error> {
-    let ps = format!("[{:?}]", char_name);
-    let payload = json!(ps);
-    let pl = payload.as_str().unwrap();
+    let payloadstring = format!("[{:?}]", char_name);
+    // let payload = json!(ps);
+    // let pl = payload.as_str().unwrap();
     println!("Searching for {:?}...", char_name);
 
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
-    // let res: Value = ureq::post(url)
-    //     .set("Accept", "application/json")
-    //     .set("Accept-Language", "en")
-    //     .set("Content-Type", "application/json")
-    //     .set("Cache-Control", "no-cache")
-    //     .send_string(pl)
-    //     .expect("there was an error handling the response from ccp")
-    //     .into_json()
-    //     .expect("couldn't coerce search result to json");
-    //
-    // let rj = &res["characters"];
-    // let rout: Value = json!(rj);
-    //
-    // let char_id: &str = &rout[0]["id"].to_string();
 
     let resp = client.post(url)
-        .body(ps)
+        .body(payloadstring)
         .send()
         .await?;
     let lookup: Value = resp.json().await?;
@@ -635,55 +621,47 @@ async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest:
 
 async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
     println!("Fetching public info...");
-    let p_url: String = format!(
+    let url: String = format!(
         "https://esi.evetech.net/latest/characters/{char_id}/?datasource=tranquility"
     );
 
-    let p = reqwest::get(&p_url).await?;
-    let pr: CharInfo = p.json().await?;
+    let publicinfo_response = reqwest::get(&url).await?;
+    let p: CharInfo = publicinfo_response.json().await?;
 
-    Ok(pr)
+    Ok(p)
 }
 
 async fn corp_info(corporation_id: &str) -> Result<CorpInfo, reqwest::Error> {
     println!("Fetching corporation info...");
-    let c_url: String = format!(
+    let url: String = format!(
         "https://esi.evetech.net/latest/corporations/{}/?datasource=tranquility",
         corporation_id
     );
 
-    let corpr = reqwest::get(c_url).await?;
-    let cr: CorpInfo = corpr.json().await?;
-    Ok(cr)
+    let corp_response = reqwest::get(url).await?;
+    let corp_info: CorpInfo = corp_response.json().await?;
+    Ok(corp_info)
 }
 
 async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::Error> {
     // println!("Fetching alliance information...");
-    let a_url: String = format!(
+    let url: String = format!(
         "https://esi.evetech.net/latest/alliances/{}/?datasource=tranquility",
         corporation_id
     );
-    let alliancer = reqwest::get(a_url).await?;
-    let alliance: AllianceInfo = alliancer.json().await?;
+    let alliance_response = reqwest::get(url).await?;
+    let alliance_info: AllianceInfo = alliance_response.json().await?;
 
 
-    Ok(alliance)
+    Ok(alliance_info)
 }
 
 async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
     println!("Fetching most recent kill data...");
     let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
-    // let kills = ureq::get(&url)
-    //     .call()
-    //     .expect("couldn't retrieve zkb data for this character for some reason...")
-    //     .into_string()
-    //     .expect("couldn't convert zkb info to json");
-    //
-    // let zkb: Value =
-    //     serde_json::from_str(kills.as_str()).expect("couldn't convert zkb data to json");
 
-    let kills = reqwest::get(url).await?;
-    let zkb: Value = kills.json().await?;
+    let kills_response = reqwest::get(url).await?;
+    let zkb: Value = kills_response.json().await?;
 
     let mr_id: String = zkb[0]["killmail_id"].to_string();
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
@@ -697,11 +675,7 @@ async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error
 async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
     println!("Fetching most recent loss data...");
     let url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
-    // let losses = ureq::get(&url)
-    //     .call()
-    //     .expect("couldn't retrieve zkb data for this character for some reason...")
-    //     .into_string()
-    //     .expect("couldn't convert zkb info to json");
+
 
     let losses = reqwest::get(url).await?;
     let zkb: Value = losses.json().await?;
@@ -717,16 +691,9 @@ async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error
 async fn get_zkb_stats(char_id: String) -> Result<Value, reqwest::Error> {
     println!("Fetching zkill stats data...");
     let url = format!("https://zkillboard.com/api/stats/characterID/{}/", char_id);
-    // let st = ureq::get(&url)
-    //     .call()
-    //     .expect("couldn't retrieve zkb data for this character for some reason...")
-    //     .into_string()
-    //     .expect("couldn't convert json output to string");
-    //
-    // let zkb = serde_json::from_str(st.as_str()).expect("couldn't convert zkb data to json");
 
-    let resp = reqwest::get(url).await?;
-    let zkb = resp.json().await?;
+    let response = reqwest::get(url).await?;
+    let zkb = response.json().await?;
 
     Ok(zkb)
 }
@@ -737,20 +704,9 @@ async fn kill_resolve(kill_id: String, kill_hash: String) -> Result<CcpKillmail,
         kill_id, kill_hash
     );
 
+    let response = reqwest::get(url).await?;
 
-    // println!("{} {} {}", kill_id, kill_hash, url);
-    // let resp = ureq::get(&url)
-    //     .call()
-    //     .expect("Received an error while communicating with CCP - likely reasons are character has no kill history or an error occurred with CCPs servers.");
-        // .into_string()
-        // .expect("couldn't convert return data to string");
-
-    let resp = reqwest::get(url).await?;
-
-    // let kill_info: Value =
-    //     serde_json::from_str(resp.as_str()).expect("couldn't convert response data to json");
-
-    let kill_info: CcpKillmail = resp.json().await?;
+    let kill_info: CcpKillmail = response.json().await?;
 
     Ok(kill_info)
 }
@@ -791,22 +747,13 @@ async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::
     let pl = payload.as_str().unwrap();
 
     let url = "https://esi.evetech.net/latest/universe/names/?datasource=tranquility&language=en";
-    // let res: Value = ureq::post(url)
-    //     .set("Accept", "application/json")
-    //     .set("Accept-Language", "en")
-    //     .set("Content-Type", "application/json")
-    //     .set("Cache-Control", "no-cache")
-    //     .send_string(&pl)
-    //     .expect("there was an error handling the response from ccp")
-    //     .into_json()
-    //     .expect("couldn't coerce search result to json");
 
-    let resp = client.post(url)
+    let response = client.post(url)
         .body(ps)
         .send()
         .await?;
 
-    let res = resp.json().await?;
+    let res = response.json().await?;
 
     Ok(res)
 }
@@ -814,26 +761,16 @@ async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::
 async fn name_lookup(item_name: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[\"{item_name}\"]");
     let payload = json!(ps);
-    let pl = payload.as_str().unwrap();
-    // println!("{}", pl);
+    // let pl = payload.as_str().unwrap();
+    // // println!("{}", pl);
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
-    // let res: Value = ureq::post(url)
-    //     .set("Accept", "application/json")
-    //     .set("Accept-Language", "en")
-    //     .set("Content-Type", "application/json")
-    //     .set("Cache-Control", "no-cache")
-    //     .send_string(&pl)
-    //     .expect("there was an error handling the response from ccp")
-    //     .into_json()
-    //     .expect("couldn't coerce search result to json");
 
-
-    let res = client.post(url)
+    let response = client.post(url)
         .body(ps)
         .send()
         .await?;
 
-    let lookup: Value = res.json().await?;
+    let lookup: Value = response.json().await?;
 
     Ok(lookup)
 }
