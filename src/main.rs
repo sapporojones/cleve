@@ -8,6 +8,7 @@ use serde_json::{json, to_string, Value};
 use std::time::SystemTime;
 // use serde_json::Value::String;
 use std::string::String;
+use std::thread::current;
 use reqwest::Client;
 
 
@@ -580,16 +581,16 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     println!("Solo losses: {}", zs["soloLosses"]);
 
     let killtime = mr_kill.killmail_time.to_string();
-    let killtime_clean: String = date_parse(&kt);
-    let kill_diff: i64 = date_calc(kt.clone()).await?;
+    let killtime_clean: String = date_parse(&killtime);
+    let kill_diff: i64 = date_calc(killtime.clone()).await?;
     println!(
         "\nMost recently killed a(n) {} on {} which was {} days ago",
         killed_with, &killtime_clean, kill_diff
     );
 
     let losstime = mr_loss.killmail_time.to_string();
-    let losstime_clean: String = date_parse(&lt);
-    let loss_diff = date_calc(lt.clone()).await?;
+    let losstime_clean: String = date_parse(&losstime);
+    let loss_diff = date_calc(losstime.clone()).await?;
     println!(
         "Most recently lost a(n) {} on {} which was {} days ago",
         lost_ship, &losstime_clean, loss_diff
@@ -1059,10 +1060,10 @@ async fn timers() -> Result<(), reqwest::Error> {
 
 
     let current_timers = get_campaigns().await?;
-
+    let total_timers = current_timers.len();
 
     let mut output: Vec<String> = Vec::new();
-    print!("Processing timers... ");
+    print!("Processing {total_timers} timers... ");
     io::stdout().flush().unwrap();
     for timer in current_timers.iter() {
         let system_info: SystemInfo = get_system(timer.solar_system_id.to_string().as_str()).await?;
