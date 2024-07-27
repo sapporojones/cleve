@@ -12,6 +12,20 @@ use std::thread::current;
 use reqwest::Client;
 
 
+pub type Incursions = Vec<IncursionStruct>;
+
+#[derive(Serialize, Deserialize)]
+pub struct IncursionStruct {
+    pub constellation_id: i64,
+    pub faction_id: i64,
+    pub has_boss: bool,
+    pub infested_solar_systems: Vec<i64>,
+    pub influence: f64,
+    pub staging_solar_system_id: i64,
+    pub state: String,
+    #[serde(rename = "type")]
+    pub incursion_type: String,
+}
 #[derive(Serialize, Deserialize)]
 pub struct RegionInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -309,6 +323,8 @@ enum Commands {
     Timers,
     /// Retrieve current status of the Tranquility server
     Status,
+    /// List information about active incursions
+    Incursions,
     /// For information about a character
     Pilot {
         /// Name of character to lookup, if character name contains spaces quotation marks must be used
@@ -371,6 +387,13 @@ async fn main() -> Result<(), reqwest::Error> {
         }
         Some(Commands::Timers { }) => {
             timers().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
+        Some(Commands::Incursions { }) => {
+            incursions().await?;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -1102,5 +1125,42 @@ async fn timers() -> Result<(), reqwest::Error> {
         io::stdout().flush().unwrap();
     }
     println!("\n");
+    Ok(())
+}
+
+async fn get_incursions() -> Result<Incursions, reqwest::Error> {
+    let url = "https://esi.evetech.net/latest/incursions/?datasource=tranquility";
+    let resp = reqwest::get(url).await?;
+    let incursions: Incursions = resp.json().await?;
+    Ok(incursions)
+}
+
+async fn incursions() -> Result<(), reqwest::Error> {
+    let mut output = Vec::new();
+    let incursions: Incursions = get_incursions().await?;
+
+    for incursion in incursions.iter() {
+        let const_info = get_const(incursion.constellation_id.to_string().as_str()).await?;
+        let region_info = get_region(const_info.region_id.to_string().as_str()).await?;
+        let staging_system = get_system(incursion.staging_solar_system_id.to_string().as_str()).await?;
+        let state = incursion.state.as_str();
+        let has_boss = incursion.has_boss;
+        let out_string = format!("{:<30} {:<20} {:<20} {:<20}",
+            region_info.name,
+            staging_system.name,
+            state,
+            has_boss);
+        output.push(out_string)
+    }
+    println!("\n{:<30} {:<20} {:<20} {:<20}",
+        "Region:",
+        "Staging System:",
+        "State:",
+        "Has Boss:");
+    for incursion in output.iter() {
+        println!("{incursion}")
+    }
+    println!("\n");
+
     Ok(())
 }
