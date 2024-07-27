@@ -319,12 +319,10 @@ enum Commands {
     Thera,
     /// For Turnur specific wormhole information
     Turnur,
-    /// Currently known sovereignty timers
-    Timers,
-    /// Retrieve current status of the Tranquility server
-    Status,
     /// List information about active incursions
     Incursions,
+    /// Currently known sovereignty timers
+    Timers,
     /// For information about a character
     Pilot {
         /// Name of character to lookup, if character name contains spaces quotation marks must be used
@@ -334,6 +332,8 @@ enum Commands {
     Sysinfo {
         system_name: String,
     },
+    /// Retrieve current status of the Tranquility server
+    Status,
 
 }
 
