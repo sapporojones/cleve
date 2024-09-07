@@ -1,17 +1,17 @@
 use std::fmt::Error;
 use std::io::Write;
 use std::io;
+use std::ptr::null;
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
 use chrono::Utc;
 use serde_json::{json, to_string, Value};
 use std::time::SystemTime;
-// use serde_json::Value::String;
 use std::string::String;
 use std::thread::current;
 use reqwest::Client;
-
-
+use serde_json::Value::Null;
+use rusqlite;
 pub type Incursions = Vec<IncursionStruct>;
 
 #[derive(Serialize, Deserialize)]
@@ -329,7 +329,7 @@ enum Commands {
         character_name: String,
     },
     /// Retrieve information about a specified system
-    Sysinfo {
+    System {
         system_name: String,
     },
     /// Retrieve current status of the Tranquility server
@@ -378,7 +378,7 @@ async fn main() -> Result<(), reqwest::Error> {
             let duration = end.duration_since(start).unwrap();
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
-        Some(Commands::Sysinfo {system_name}) => {
+        Some(Commands::System {system_name}) => {
             system_stats(system_name).await?;
 
             let end = SystemTime::now();
@@ -407,10 +407,10 @@ async fn main() -> Result<(), reqwest::Error> {
 }
 
 async fn evescout() -> Result<(), reqwest::Error> {
-    let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
-    let thera: EveScout = rthera.json().await?;
-    let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
-    let turnur: EveScout = rturnur.json().await?;
+    let thera_response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
+    let thera: EveScout = thera_response.json().await?;
+    let turnur_response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
+    let turnur: EveScout = turnur_response.json().await?;
 
     println!("\nThera\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
@@ -446,8 +446,8 @@ async fn evescout() -> Result<(), reqwest::Error> {
 }
 
 async fn thera() -> Result<(), reqwest::Error> {
-    let rthera = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
-    let thera: EveScout = rthera.json().await?;
+    let thera_response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
+    let thera: EveScout = thera_response.json().await?;
     println!("\nThera\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
              "in_system",
@@ -467,8 +467,8 @@ async fn thera() -> Result<(), reqwest::Error> {
 }
 
 async fn turnur() -> Result<(), reqwest::Error> {
-    let rturnur = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
-    let turnur: EveScout = rturnur.json().await?;
+    let turnur_response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
+    let turnur: EveScout = turnur_response.json().await?;
     println!("\nTurnur\n{:<20} {:<15} {:<15} {:<15} {:<15}",
              "in_region",
              "in_system",
@@ -502,7 +502,7 @@ async fn status() -> Result<(), reqwest::Error> {
 
 async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
-    // // test char id:
+    // // known character ids for testing with:
     // // sappo = 772506501
     // // billy = 1826057122
     // // d1ck = 749151393
@@ -523,7 +523,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string()).await?;
     let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string()).await?;
-    // println!("{}", mr_kill["victim"]["ship_type_id"].to_string().replace("\"", ""));
+
     let killed_with_j: Value = item_lookup(
         mr_kill.victim.ship_type_id
             .to_string()
@@ -537,10 +537,10 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
             .replace("\"", ""),
         client.clone(),
     ).await?;
-    // println!("{}", lost_ship_j.to_string());
+
     let lost_ship: String = lost_ship_j[0]["name"].to_string().replace("\"", "");
 
-    // println!("\n \n");
+
     println!("\n \nBasic info:");
     println!("Name: {}", p.name.to_string().replace("\"", ""));
     let bday_raw: String = p.birthday.to_string().replace("\"", "");
@@ -626,8 +626,6 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
 async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest::Error> {
     let payloadstring = format!("[{:?}]", char_name);
-    // let payload = json!(ps);
-    // let pl = payload.as_str().unwrap();
     println!("Searching for {:?}...", char_name);
 
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
@@ -689,7 +687,6 @@ async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error
 
     let mr_id: String = zkb[0]["killmail_id"].to_string();
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
-    // println!("{} {} ", mr_id, mr_hash);
 
     let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string()).await?;
 
@@ -699,7 +696,6 @@ async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error
 async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
     println!("Fetching most recent loss data...");
     let url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
-
 
     let losses = reqwest::get(url).await?;
     let zkb: Value = losses.json().await?;
@@ -784,9 +780,7 @@ async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::
 
 async fn name_lookup(item_name: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[\"{item_name}\"]");
-    let payload = json!(ps);
-    // let pl = payload.as_str().unwrap();
-    // // println!("{}", pl);
+
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
 
     let response = client.post(url)
@@ -817,16 +811,16 @@ async fn get_jumps(system_id: &str) -> Result<String, reqwest::Error> {
 
 async fn get_gates(system_id: &str) -> Result<String, reqwest::Error> {
     let url = format!("https://esi.evetech.net/latest/universe/systems/{system_id}/");
-    let gater = reqwest::get(url).await?;
-    let gates: SystemInfo = gater.json().await?;
+    let gate_response = reqwest::get(url).await?;
+    let gates: SystemInfo = gate_response.json().await?;
     let num_gates = gates.stargates.len().to_string();
     Ok(num_gates)
 }
 
 async fn get_num_kills(system_id: &str) -> Result<Vec<String>, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
-    let killsr = reqwest::get(url).await?;
-    let killsj: Value = killsr.json().await?;
+    let kills_response = reqwest::get(url).await?;
+    let killsj: Value = kills_response.json().await?;
 
     let mut kills_vec: Vec<String> = Vec::new();
     for key in killsj.as_object().iter() {
@@ -839,18 +833,15 @@ async fn get_num_kills(system_id: &str) -> Result<Vec<String>, reqwest::Error> {
         };
     };
 
-
-
-
     Ok(kills_vec)
 }
 
 async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
-    let killsr = reqwest::get(url).await?;
-    let killsj: Value = killsr.json().await?;
+    let kills_response = reqwest::get(url).await?;
+    let kills_json: Value = kills_response.json().await?;
     let mut k: i64 = 0;
-    for key in killsj.as_object().iter() {
+    for key in kills_json.as_object().iter() {
         if key["system_id"].to_string().as_str() == system_id {
             k = key["npc_kills"].as_i64().unwrap();
         };
@@ -861,9 +852,9 @@ async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
 
 async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> {
     let url = format!("https://zkillboard.com/api/solarSystemID/{system_id}/");
-    let zkbsysr = reqwest::get(url).await?;
-    // let zkbsysj: Value = zkbsysr.json().await?;
-    let zkbsysj: SystemZkb = zkbsysr.json().await?;
+    let zkbsys_response = reqwest::get(url).await?;
+
+    let zkbsysj: SystemZkb = zkbsys_response.json().await?;
     Ok(zkbsysj)
 
 }
@@ -892,6 +883,7 @@ async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Erro
 async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
     let system_id_lookup = name_lookup(system_name.to_string(), client.clone()).await?;
+
     println!("Looking up system name...");
     let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
     println!("Looking up system id...");
@@ -899,7 +891,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     println!("Retrieving zkillboard for {system_name}...");
     let kills = get_num_kills(system_id.as_str()).await?;
     println!("Retrieving total number of ships killed in system in the last hour...");
-    // let npc_kills = get_npc_kills(system_id.as_str()).await?;
+
     println!("Retrieving total number of NPCs killed in system in the last hour...");
     let system_jumps = get_jumps(system_id.as_str()).await?;
     println!("Retrieving total number of jumps in system in the last hour...");
@@ -930,7 +922,6 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     for kill in ccp_kills {
         let mut output: Vec<String> = Vec::new();
         let ship = item_lookup(kill.victim.ship_type_id.to_string(), client.clone()).await?;
-        // dbg!(kill.clone());
         if kill.victim.character_id.is_none() {
             char = "None".to_string()
         } else {
@@ -939,7 +930,6 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
             char = resp[0]["name"].to_string()
 
         }
-        // let char = item_lookup(kill.victim.character_id.to_string(), client.clone()).await?;
         let corp = item_lookup(kill.victim.corporation_id.to_string(), client.clone()).await?;
         let mut alli = String::new();
 
@@ -953,25 +943,15 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
                 "None";
             }
         }
-        // let alli = item_lookup(kill.victim.alliance_id.unwrap().to_string());
 
         let killdelta = killmail_time_calc(kill.killmail_time).await?;
         output.push(killdelta);
 
-        // output.push(kill.killmail_time.to_string());
         output.push(ship[0]["name"].to_string());
-        // output.push(char[0]["name"].to_string());
         output.push(char.to_string());
         output.push(corp[0]["name"].to_string());
         output.push(alli);
         outputwrapper.push(output);
-        // println!("{:<20} {:<15} {:<15} {:<15} {:<15}",
-        //             kill.killmail_time,
-        //             ship[0]["name"],
-        //             char[0]["name"],
-        //             corp[0]["name"],
-        //             alli[0]["name"],
-        // );
 
     };
     println!("\n\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
@@ -993,7 +973,6 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
 
     }
-    // println!("{:<25} {:<25} {:<25} {:<25} {:<25}");
     let mut npckills = String::new();
     let mut podkills = String::new();
     let mut shipkills = String::new();
@@ -1133,6 +1112,11 @@ async fn get_incursions() -> Result<Incursions, reqwest::Error> {
     let resp = reqwest::get(url).await?;
     let incursions: Incursions = resp.json().await?;
     Ok(incursions)
+}
+
+async fn get_system_name_db() -> Result<String, rusqlite::Error> {
+
+
 }
 
 async fn incursions() -> Result<(), reqwest::Error> {
