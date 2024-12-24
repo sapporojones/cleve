@@ -1114,11 +1114,6 @@ async fn get_incursions() -> Result<Incursions, reqwest::Error> {
     Ok(incursions)
 }
 
-async fn get_system_name_db() -> Result<String, rusqlite::Error> {
-
-
-}
-
 async fn incursions() -> Result<(), reqwest::Error> {
     let mut output = Vec::new();
     let incursions: Incursions = get_incursions().await?;
