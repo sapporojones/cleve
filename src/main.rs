@@ -1,6 +1,9 @@
-use std::fmt::Error;
-use std::io::Write;
+use std::fmt::Error as FError;
+use std::io::{Read, Write};
 use std::io;
+use std::io::Cursor;
+use futures_util::StreamExt;
+use std::io::Error as IError;
 use std::ptr::null;
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
@@ -9,9 +12,61 @@ use serde_json::{json, to_string, Value};
 use std::time::SystemTime;
 use std::string::String;
 use std::thread::current;
-use reqwest::Client;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+use miette::{Diagnostic, Result};
+use reqwest::{
+    Client,
+    header::USER_AGENT,
+    Error
+};
+use bzip2_rs::DecoderReader;
+use sqlx::{migrate::MigrateDatabase, Pool, Sqlite, SqlitePool};
+
+use zip::ZipArchive;
+use zip_extensions::read::ZipArchiveExtensions;
 use serde_json::Value::Null;
 use rusqlite;
+// use error_chain::error_chain;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use zip_extensions::zip_extract;
+
+#[derive(Error, Diagnostic, Debug)]
+enum MyError {
+    #[error("IO Error")]
+    IO(#[from] std::io::Error),
+    #[error("FE Error")]
+    FE(#[from] std::fmt::Error),
+    #[error("Reqwest Error")]
+    RE(#[from] reqwest::Error),
+    #[error("SQLx Error")]
+    SqE(#[from] sqlx::Error),
+    #[error("Other Error")]
+    Custom(String),
+}
+// for write_all()
+
+
+
+
+
+// static DB: Pool<Sqlite> = SqlitePool::connect(DB_URL).await.unwrap();
+
+async fn db_connect() -> Pool<Sqlite>{
+    let db_url: &str = "sqlite://sqlite-latest.sqlite";
+    let pool = SqlitePool::connect(db_url).await.expect("Unable to connect to database");
+    pool
+}
+
+
+// async fn get_db_conn(dbpool: &Pool<Sqlite>) -> Pool<Sqlite> {
+//     // dbpool.get().unwrap().acquire().await.unwrap()
+//     dbpool.acquire().await.expect("Unable to create new pool connection");
+//
+//
+// }
+
 pub type Incursions = Vec<IncursionStruct>;
 
 #[derive(Serialize, Deserialize)]
@@ -334,6 +389,8 @@ enum Commands {
     },
     /// Retrieve current status of the Tranquility server
     Status,
+    /// Update SDE components
+    Update,
 
 }
 
@@ -341,6 +398,8 @@ enum Commands {
 async fn main() -> Result<(), reqwest::Error> {
     let start = SystemTime::now();
     let cli = Cli::parse();
+
+
     match &cli.command {
         Some(Commands::Travel {  }) => {
             evescout().await?;
@@ -393,7 +452,14 @@ async fn main() -> Result<(), reqwest::Error> {
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
         Some(Commands::Incursions { }) => {
-            incursions().await?;
+            incursions().await.expect("Unable to fetch incursion data");
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
+        Some(Commands::Update { }) => {
+            let _ = get_sde_components().await;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -524,21 +590,21 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string()).await?;
     let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string()).await?;
 
-    let killed_with_j: Value = item_lookup(
+    let killed_with_j: String = item_lookup(
         mr_kill.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
         client.clone(),
     ).await?;
-    let killed_with: String = killed_with_j[0]["name"].to_string().replace("\"", "");
-    let lost_ship_j: Value = item_lookup(
+    let killed_with: String = killed_with_j.replace("\"", "");
+    let lost_ship_j: String = item_lookup(
         mr_loss.victim.ship_type_id
             .to_string()
             .replace("\"", ""),
         client.clone(),
     ).await?;
 
-    let lost_ship: String = lost_ship_j[0]["name"].to_string().replace("\"", "");
+    let lost_ship: String = lost_ship_j.replace("\"", "");
 
 
     println!("\n \nBasic info:");
@@ -626,7 +692,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
 async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest::Error> {
     let payloadstring = format!("[{:?}]", char_name);
-    println!("Searching for {:?}...", char_name);
+    // println!("Searching for {:?}...", char_name);
 
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en";
 
@@ -642,7 +708,7 @@ async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest:
 }
 
 async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
-    println!("Fetching public info...");
+    // println!("Fetching public info...");
     let url: String = format!(
         "https://esi.evetech.net/latest/characters/{char_id}/?datasource=tranquility"
     );
@@ -654,7 +720,7 @@ async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
 }
 
 async fn corp_info(corporation_id: &str) -> Result<CorpInfo, reqwest::Error> {
-    println!("Fetching corporation info...");
+    // println!("Fetching corporation info...");
     let url: String = format!(
         "https://esi.evetech.net/latest/corporations/{}/?datasource=tranquility",
         corporation_id
@@ -679,7 +745,7 @@ async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::
 }
 
 async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
-    println!("Fetching most recent kill data...");
+    // println!("Fetching most recent kill data...");
     let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
 
     let kills_response = reqwest::get(url).await?;
@@ -694,7 +760,7 @@ async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error
 }
 
 async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
-    println!("Fetching most recent loss data...");
+    // println!("Fetching most recent loss data...");
     let url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
 
     let losses = reqwest::get(url).await?;
@@ -761,7 +827,35 @@ fn date_parse(date_string: &String) -> String {
     naive_dt.to_string()
 }
 
-async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::Error> {
+// async fn item_lookup(item_id: String, client: Client, dbconnect: &Pool<SqlitePool>) -> Result<Value, reqwest::Error> {
+async fn item_lookup(item_id: String, client: Client) -> Result<String, reqwest::Error> {
+    // let ps = format!("[{}]", item_id);
+    // let payload = json!(ps);
+    // let pl = payload.as_str().unwrap();
+    //
+    // let url = "https://esi.evetech.net/latest/universe/names/?datasource=tranquility&language=en";
+    //
+    // let response = client.post(url)
+    //     .body(ps)
+    //     .send()
+    //     .await?;
+    //
+    // let res = response.json().await?;
+
+    // let dbpool = get_db_conn(dbconnect);
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let item = sqlx::query!("SELECT  typeName FROM invTypes WHERE typeID IS ?", item_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(item.typeName.expect("Unable to return database record"))
+}
+async fn legacy_item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[{}]", item_id);
     let payload = json!(ps);
     let pl = payload.as_str().unwrap();
@@ -773,11 +867,14 @@ async fn item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::
         .send()
         .await?;
 
-    let res = response.json().await?;
+    let res: Value = response.json().await?;
+
+
 
     Ok(res)
 }
 
+// async fn name_lookup(item_name: String, client: Client, dbconnect: &Pool<SqlitePool>) -> Result<Value, reqwest::Error> {
 async fn name_lookup(item_name: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[\"{item_name}\"]");
 
@@ -906,7 +1003,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         ccp_kills.push(k);
 
         kill_counter += 1;
-        if kill_counter == 5 {
+        if kill_counter == 3 {
             break
         }
     };
@@ -925,18 +1022,18 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         if kill.victim.character_id.is_none() {
             char = "None".to_string()
         } else {
-            let resp = item_lookup(kill.victim.character_id.unwrap().to_string(), client.clone()).await?;
+            let resp: Value = legacy_item_lookup(kill.victim.character_id.unwrap().to_string(), client.clone()).await?;
 
             char = resp[0]["name"].to_string()
 
         }
-        let corp = item_lookup(kill.victim.corporation_id.to_string(), client.clone()).await?;
+        let corp = corp_info(kill.victim.corporation_id.to_string().as_str()).await?;
         let mut alli = String::new();
 
         match kill.victim.alliance_id {
             Some(i) => {
-                let x = item_lookup(kill.victim.alliance_id.unwrap().to_string(), client.clone()).await?;
-                alli = x[0]["name"].to_string()
+                let x = alliance_info(kill.victim.alliance_id.unwrap().to_string()).await?;
+                alli = x.name
 
             }
             None => {
@@ -947,9 +1044,9 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         let killdelta = killmail_time_calc(kill.killmail_time).await?;
         output.push(killdelta);
 
-        output.push(ship[0]["name"].to_string());
-        output.push(char.to_string());
-        output.push(corp[0]["name"].to_string());
+        output.push(ship.to_string());
+        output.push(char);
+        output.push(corp.name);
         output.push(alli);
         outputwrapper.push(output);
 
@@ -1016,6 +1113,18 @@ async fn get_system(system_id: &str) -> Result<SystemInfo, reqwest::Error> {
     let response = reqwest::get(url).await?;
     let systeminfo: SystemInfo = response.json().await?;
 
+
+    // let db_connect = db_connect().await;
+    // let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+    //
+    // let item = sqlx::query!("SELECT  typeName FROM invTypes WHERE typeID IS ?", item_id)
+    //     .fetch_one(&db_connect)
+    //     .await
+    //     .expect("Unable to query the database");
+    //
+    //
+    //
+    // Ok(item.typeName.expect("Unable to return database record"))
     Ok(systeminfo)
 }
 
@@ -1075,8 +1184,8 @@ async fn timers() -> Result<(), reqwest::Error> {
         let system_name = system_info.name;
 
         let region_name = region_info.name;
-        let defender_value = item_lookup(timer.defender_id.to_string(), client.clone()).await?;
-        let defender = defender_value[0]["name"].to_string();
+        let defender_value = item_lookup(timer.defender_id.to_string(), client.clone(), ).await?;
+        let defender = defender_value;
 
         let timer_start = timer_time_calc(timer.start_time.to_string()).await?;
 
@@ -1114,7 +1223,7 @@ async fn get_incursions() -> Result<Incursions, reqwest::Error> {
     Ok(incursions)
 }
 
-async fn incursions() -> Result<(), reqwest::Error> {
+async fn incursions() -> Result<(), MyError> {
     let mut output = Vec::new();
     let incursions: Incursions = get_incursions().await?;
 
@@ -1140,6 +1249,174 @@ async fn incursions() -> Result<(), reqwest::Error> {
         println!("{incursion}")
     }
     println!("\n");
+
+    Ok(())
+}
+
+async fn get_sde_components() -> Result<(), MyError> {
+// async fn get_sde_components() {
+
+    // hold for sqldump conversions being enabled
+    // let mut ss_present: bool = true;
+    // let mut co_present: bool = true;
+    // let mut re_present: bool = true;
+    // let mut in_present: bool = true;
+    //
+    // ss_present = Path::new("mapSolarSystems.db").exists();
+    // if ss_present == true {
+    //     std::fs::remove_file("mapSolarSystems.db")?;
+    // }
+    // co_present = Path::new("mapConstellations.db").exists();
+    // if ss_present == true {
+    //     std::fs::remove_file("mapConstellations.db")?;
+    // }
+    // re_present = Path::new("mapRegions.db").exists();
+    // if ss_present == true {
+    //     std::fs::remove_file("mapRegions.db")?;
+    // }
+    // in_present = Path::new("invTypes.db").exists();
+    // if ss_present == true {
+    //     std::fs::remove_file("invTypes.db")?;
+    // }
+    // // std::fs::remove_file("mapSolarSystems.db")?;
+    // // std::fs::remove_file("mapConstellations.db")?;
+    // // std::fs::remove_file("mapRegions.db")?;
+    // // std::fs::remove_file("invTypes.db")?;
+    // let client = Client::new();
+    //
+    // let mut resp_solar = client.get("https://www.fuzzwork.co.uk/dump/latest/mapSolarSystems.sql.bz2")
+    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
+    //     .send()
+    //     .await?
+    //     .bytes_stream();
+    //
+    // let mut out_solar = std::fs::File::create("mapSolarSystems.sql.bz2")
+    //     .expect("failed to create file");
+    //
+    //
+    // while let Some(item) = resp_solar.next().await {
+    //     std::io::copy(&mut item?.as_ref(), &mut out_solar).expect("Unable to write data");
+    // }
+    //
+    // let mut resp_const = client.get("https://www.fuzzwork.co.uk/dump/latest/mapConstellations.sql.bz2")
+    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
+    //     .send()
+    //     .await?
+    //     .bytes_stream();
+    //
+    // let mut out_const = std::fs::File::create("mapConstellations.sql.bz2")
+    //     .expect("failed to create file");
+    //
+    // while let Some(item) = resp_const.next().await {
+    //     std::io::copy(&mut item?.as_ref(), &mut out_const).expect("Unable to write data");
+    // }
+    //
+    // let mut resp_region = client.get("https://www.fuzzwork.co.uk/dump/latest/mapRegions.sql.bz2")
+    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
+    //     .send()
+    //     .await?
+    //     .bytes_stream();
+    //
+    // let mut out_region = std::fs::File::create("mapRegions.sql.bz2").expect("failed to create file");
+    // while let Some(item) = resp_region.next().await {
+    //     std::io::copy(&mut item?.as_ref(), &mut out_region).expect("Unable to write data");
+    // }
+    //
+    // let mut resp_items = client.get("https://www.fuzzwork.co.uk/dump/latest/invTypes.sql.bz2")
+    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
+    //     .send()
+    //     .await?
+    //     .bytes_stream();
+    //
+    // let mut out_items = std::fs::File::create("invTypes.sql.bz2").expect("failed to create file");
+    //
+    // while let Some(item) = resp_items.next().await {
+    //     std::io::copy(&mut item?.as_ref(), &mut out_items).expect("Unable to write data");
+    // }
+    //
+    // let solar_path = r"./mapSolarSystems.sql.bz2";
+    // let const_path = r"./mapConstellations.sql.bz2";
+    // let region_path = r"./mapRegions.sql.bz2";
+    // let items_path = r"./invTypes.sql.bz2";
+    //
+    // let mut sol_compressed_file = std::fs::File::open("mapSolarSystems.sql.bz2");
+    // let mut sol_decompressed_output = std::fs::File::create("mapSolarSystems.sql");
+    // let mut sol_reader = DecoderReader::new(sol_compressed_file?);
+    // std::io::copy(&mut sol_reader, &mut sol_decompressed_output?).expect("Unable to write contents of file");
+    //
+    // let mut con_compressed_file = std::fs::File::open("mapConstellations.sql.bz2");
+    // let mut con_decompressed_output = std::fs::File::create("mapConstellations.sql");
+    // let mut con_reader = DecoderReader::new(con_compressed_file?);
+    // std::io::copy(&mut con_reader, &mut con_decompressed_output?).expect("Unable to write contents of file");
+    //
+    // let mut reg_compressed_file = std::fs::File::open("mapRegions.sql.bz2");
+    // let mut reg_decompressed_output = std::fs::File::create("mapRegions.sql");
+    // let mut reg_reader = DecoderReader::new(reg_compressed_file?);
+    // std::io::copy(&mut reg_reader, &mut reg_decompressed_output?).expect("Unable to write contents of file");
+    //
+    // let mut inv_compressed_file = std::fs::File::open("invTypes.sql.bz2");
+    // let mut inv_decompressed_output = std::fs::File::create("invTypes.sql");
+    // let mut inv_reader = DecoderReader::new(inv_compressed_file?);
+    // std::io::copy(&mut inv_reader, &mut inv_decompressed_output?).expect("Unable to write contents of file");
+    //
+    // let ss_conn = Connection::open("mapSolarSystems.db")?;
+    // let co_conn = Connection::open("mapConstellations.db")?;
+    // let re_conn = Connection::open("mapRegions.db")?;
+    // let in_conn = Connection::open("invTypes.db")?;
+    //
+    // let ss_sql = std::fs::read_to_string("mapSolarSystems.sql")?;
+    // let co_sql = std::fs::read_to_string("mapConstellations.sql")?;
+    // let re_sql = std::fs::read_to_string("mapRegions.sql")?;
+    // let in_sql = std::fs::read_to_string("invTypes.sql")?;
+    //
+    // ss_conn.execute(&ss_sql, [])?;
+    // co_conn.execute(&co_sql, [])?;
+    // re_conn.execute(&re_sql, [])?;
+    // in_conn.execute(&in_sql, [])?;
+
+    let mut sde_present: bool = true;
+
+    println!("Checking for previous SDE and removing if found...");
+
+    sde_present = Path::new("sqlite-latest.sqlite").exists();
+    if sde_present == true {
+        std::fs::remove_file("sqlite-latest.sqlite").unwrap();
+    }
+
+    let client = Client::new();
+
+    println!("Downloading latest SDE...");
+
+    let mut resp_sde = client.get("https://www.fuzzwork.co.uk/dump/sqlite-latest.sqlite.bz2")
+        .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
+        .send()
+        .await?
+        .bytes_stream();
+
+    let mut out_sde = tokio::fs::File::create("sqlite-latest.sqlite.bz2").await
+        .expect("failed to create file");
+
+
+    while let Some(item) = resp_sde.next().await {
+        tokio::io::copy(&mut item?.as_ref(), &mut out_sde).await.expect("Unable to write data");
+    }
+
+    println!("Decompressing SDE...");
+
+    let sde_path = r"./sqlite-latest.sqlite.bz2";
+    let mut sde_compressed_file = std::fs::File::open("sqlite-latest.sqlite.bz2");
+    let mut sde_decompressed_output = std::fs::File::create("sqlite-latest.sqlite");
+    let mut sde_reader = DecoderReader::new(sde_compressed_file?);
+    std::io::copy(&mut sde_reader, &mut sde_decompressed_output.unwrap()).expect("Unable to write contents of SDE");
+
+    println!("Cleaning up...");
+
+    sde_present = Path::new("sqlite-latest.sqlite.bz2").exists();
+    if sde_present == true {
+        std::fs::remove_file("sqlite-latest.sqlite.bz2").unwrap();
+    }
+
+    println!("Done!");
 
     Ok(())
 }

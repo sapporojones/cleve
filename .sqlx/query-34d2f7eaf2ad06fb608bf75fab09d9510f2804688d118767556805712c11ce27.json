@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT  typeName FROM invTypes WHERE typeID IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "typeName",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "34d2f7eaf2ad06fb608bf75fab09d9510f2804688d118767556805712c11ce27"
+}
