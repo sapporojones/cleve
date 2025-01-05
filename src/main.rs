@@ -387,6 +387,8 @@ enum Commands {
     },
     /// Retrieve current status of the Tranquility server
     Status,
+    /// Returns information about current sov timers (SOON TO BE DEPRECATED)
+    Timers,
     /// Update SDE components
     Update,
 
@@ -456,6 +458,13 @@ async fn main() -> Result<(), reqwest::Error> {
             let duration = end.duration_since(start).unwrap();
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
+        Some(Commands::Timers { }) => {
+            timers().await;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
         None => {
             println!("No command specified.  Please supply a command or re-run with --help for help.");
         }
@@ -464,9 +473,10 @@ async fn main() -> Result<(), reqwest::Error> {
 }
 
 async fn evescout() -> Result<(), reqwest::Error> {
-    let thera_response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").await?;
+    let client = reqwest::Client::new();
+    let thera_response = client.get("https://api.eve-scout.com//v2/public/signatures?system_name=thera").send().await?;
     let thera: EveScout = thera_response.json().await?;
-    let turnur_response = reqwest::get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").await?;
+    let turnur_response = client.get("https://api.eve-scout.com//v2/public/signatures?system_name=turnur").send().await?;
     let turnur: EveScout = turnur_response.json().await?;
 
     println!("\nThera\n{:<20} {:<15} {:<15} {:<15} {:<15}",
@@ -775,13 +785,13 @@ async fn get_zkb_stats(char_id: String, client: Client) -> Result<Value, reqwest
     Ok(zkb)
 }
 
-async fn kill_resolve(kill_id: String, kill_hash: String, client1: Client) -> Result<CcpKillmail, reqwest::Error> {
+async fn kill_resolve(kill_id: String, kill_hash: String, client: Client) -> Result<CcpKillmail, reqwest::Error> {
     let url = format!(
         "https://esi.evetech.net/latest/killmails/{}/{}/?datasource=tranquility",
         kill_id, kill_hash
     );
 
-    let response = reqwest::get(url).await?;
+    let response = client.get(url).send().await?;
 
     let kill_info: CcpKillmail = response.json().await?;
 
@@ -962,12 +972,12 @@ async fn get_solar_name(system_id: String, client: Client) -> Result<String, req
     Ok(system.solarSystemName.expect("Unable to return database record"))
 }
 
-async fn get_solar_id(system_name: String, client: Client) -> Result<i64, reqwest::Error> {
+async fn get_timer_solar_id(system_id: String, client: Client) -> Result<i64, reqwest::Error> {
 
     let db_connect = db_connect().await;
     let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
 
-    let system = sqlx::query!("SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName IS ?", system_name)
+    let system = sqlx::query!("SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName IS ?", system_id)
         .fetch_one(&db_connect)
         .await
         .expect("Unable to query the database");
@@ -975,6 +985,65 @@ async fn get_solar_id(system_name: String, client: Client) -> Result<i64, reqwes
 
 
     Ok(system.solarSystemID)
+}
+
+async fn get_timer_solar_name(system_id: String, client: Client) -> Result<String, reqwest::Error> {
+
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let system = sqlx::query!("SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?", system_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(system.solarSystemName.expect("Unable to return database record"))
+}
+async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, reqwest::Error> {
+
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let system = sqlx::query!("SELECT constellationID FROM mapSolarSystems WHERE solarSystemName IS ?", system_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(system.constellationID.expect("Unable to return database record"))
+}
+
+async fn get_timer_region_id(const_id: String, client: Client) -> Result<i64, reqwest::Error> {
+
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let system = sqlx::query!("SELECT regionID FROM mapConstellations WHERE constellationID IS ?", const_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(system.regionID.expect("Unable to return database record"))
+}
+
+async fn get_timer_region_name(region_id: String, client: Client) -> Result<String, reqwest::Error> {
+
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let system = sqlx::query!("SELECT regionName FROM mapRegions WHERE regionID IS ?", region_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(system.regionName.expect("Unable to return database record"))
 }
 
 async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Error> {
@@ -1198,15 +1267,19 @@ async fn timers() -> Result<(), reqwest::Error> {
     print!("Processing {total_timers} timers... ");
     io::stdout().flush().unwrap();
     for timer in current_timers.iter() {
-        let system_info: SystemInfo = get_system(timer.solar_system_id.to_string().as_str()).await?;
-        let const_info: ConstInfo = get_const(system_info.constellation_id.to_string().as_str()).await?;
-        let region_info: RegionInfo = get_region(const_info.region_id.to_string().as_str()).await?;
+        // let system_info: SystemInfo = get_system(timer.solar_system_id.to_string().as_str()).await?;
+        // let const_info: ConstInfo = get_const(system_info.constellation_id.to_string().as_str()).await?;
+        // let region_info: RegionInfo = get_region(const_info.region_id.to_string().as_str()).await?;
 
-        let system_name = system_info.name;
+        let system_name = get_timer_solar_name(timer.solar_system_id.to_string(), client.clone()).await?;
 
-        let region_name = region_info.name;
-        let defender_value = item_lookup(timer.defender_id.to_string(), client.clone(), ).await?;
-        let defender = defender_value;
+        // let system_name = system_info.name;
+
+        // let region_name = region_info.name;
+        let region_id = get_timer_region_id(timer.constellation_id.to_string(), client.clone()).await?;
+        let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
+        let defender_value = alliance_info(timer.defender_id.to_string(), client.clone(), ).await?;
+        let defender = defender_value.name;
 
         let timer_start = timer_time_calc(timer.start_time.to_string()).await?;
 
