@@ -376,8 +376,6 @@ enum Commands {
     Turnur,
     /// List information about active incursions
     Incursions,
-    /// Currently known sovereignty timers
-    Timers,
     /// For information about a character
     Pilot {
         /// Name of character to lookup, if character name contains spaces quotation marks must be used
@@ -439,13 +437,6 @@ async fn main() -> Result<(), reqwest::Error> {
         }
         Some(Commands::System {system_name}) => {
             system_stats(system_name).await?;
-
-            let end = SystemTime::now();
-            let duration = end.duration_since(start).unwrap();
-            println!("Completed in {} seconds.", duration.as_secs_f64());
-        }
-        Some(Commands::Timers { }) => {
-            timers().await?;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -577,18 +568,18 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     // uncomment below to accept char id from user via command line args
     let ci = char_name;
     let char_id = char_search(ci, client.clone()).await?;
-    let p: CharInfo  = public_info(char_id.as_str()).await?;
+    let p: CharInfo  = public_info(char_id.as_str(), client.clone()).await?;
 
     let corpid: i64 = p.corporation_id;
-    let c: CorpInfo = corp_info(corpid.to_string().as_str()).await?;
+    let c: CorpInfo = corp_info(corpid.to_string().as_str(), client.clone()).await?;
 
 
     let aid = c.alliance_id.clone();
 
-    let zs: Value = get_zkb_stats(char_id.clone()).await?;
+    let zs: Value = get_zkb_stats(char_id.clone(), client.clone()).await?;
 
-    let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string()).await?;
-    let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string()).await?;
+    let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string(), client.clone()).await?;
+    let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string(), client.clone()).await?;
 
     let killed_with_j: String = item_lookup(
         mr_kill.victim.ship_type_id
@@ -640,7 +631,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
             println!("\nAlliance:  Corporation is not a member of an alliance.")
         },
         Some(_aid) => {
-            let alliance_info: AllianceInfo = alliance_info(aid.unwrap().to_string()).await?;
+            let alliance_info: AllianceInfo = alliance_info(aid.unwrap().to_string(), client.clone()).await?;
             println!(
                 "\nAlliance: {} [{}]",
                 alliance_info.name.to_string().replace("\"", ""),
@@ -707,84 +698,84 @@ async fn char_search(char_name: &str, client: Client) -> Result<String, reqwest:
     Ok(char_id)
 }
 
-async fn public_info(char_id: &str) -> Result<CharInfo, reqwest::Error> {
+async fn public_info(char_id: &str, client: Client) -> Result<CharInfo, reqwest::Error> {
     // println!("Fetching public info...");
     let url: String = format!(
         "https://esi.evetech.net/latest/characters/{char_id}/?datasource=tranquility"
     );
 
-    let publicinfo_response = reqwest::get(&url).await?;
+    let publicinfo_response = client.get(&url).send().await?;
     let p: CharInfo = publicinfo_response.json().await?;
 
     Ok(p)
 }
 
-async fn corp_info(corporation_id: &str) -> Result<CorpInfo, reqwest::Error> {
+async fn corp_info(corporation_id: &str, client: Client) -> Result<CorpInfo, reqwest::Error> {
     // println!("Fetching corporation info...");
     let url: String = format!(
         "https://esi.evetech.net/latest/corporations/{}/?datasource=tranquility",
         corporation_id
     );
 
-    let corp_response = reqwest::get(url).await?;
+    let corp_response = client.get(url).send().await?;
     let corp_info: CorpInfo = corp_response.json().await?;
     Ok(corp_info)
 }
 
-async fn alliance_info(corporation_id: String) -> Result<AllianceInfo, reqwest::Error> {
+async fn alliance_info(corporation_id: String, client: Client) -> Result<AllianceInfo, reqwest::Error> {
     // println!("Fetching alliance information...");
     let url: String = format!(
         "https://esi.evetech.net/latest/alliances/{}/?datasource=tranquility",
         corporation_id
     );
-    let alliance_response = reqwest::get(url).await?;
+    let alliance_response = client.get(url).send().await?;
     let alliance_info: AllianceInfo = alliance_response.json().await?;
 
 
     Ok(alliance_info)
 }
 
-async fn get_mr_kill_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
+async fn get_mr_kill_info(char_id: String, client: Client) -> Result<CcpKillmail, reqwest::Error> {
     // println!("Fetching most recent kill data...");
     let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
 
-    let kills_response = reqwest::get(url).await?;
+    let kills_response = client.get(url).send().await?;
     let zkb: Value = kills_response.json().await?;
 
     let mr_id: String = zkb[0]["killmail_id"].to_string();
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
 
-    let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string()).await?;
+    let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string(), client.clone()).await?;
 
     Ok(mr_kill)
 }
 
-async fn get_mr_loss_info(char_id: String) -> Result<CcpKillmail, reqwest::Error> {
+async fn get_mr_loss_info(char_id: String, client: Client) -> Result<CcpKillmail, reqwest::Error> {
     // println!("Fetching most recent loss data...");
     let url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
 
-    let losses = reqwest::get(url).await?;
+    let losses = client.get(url).send().await?;
     let zkb: Value = losses.json().await?;
 
     let mr_id: String = zkb[0]["killmail_id"].to_string();
     let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
 
-    let mr_loss: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string()).await?;
+    let mr_loss: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string(),client.clone() ).await?;
 
     Ok(mr_loss)
 }
 
-async fn get_zkb_stats(char_id: String) -> Result<Value, reqwest::Error> {
+async fn get_zkb_stats(char_id: String, client: Client) -> Result<Value, reqwest::Error> {
     println!("Fetching zkill stats data...");
     let url = format!("https://zkillboard.com/api/stats/characterID/{}/", char_id);
 
-    let response = reqwest::get(url).await?;
+    let response = client.get(url).send().await?;
     let zkb = response.json().await?;
 
     Ok(zkb)
 }
 
-async fn kill_resolve(kill_id: String, kill_hash: String) -> Result<CcpKillmail, reqwest::Error> {
+async fn kill_resolve(kill_id: String, kill_hash: String, client1: Client) -> Result<CcpKillmail, reqwest::Error> {
     let url = format!(
         "https://esi.evetech.net/latest/killmails/{}/{}/?datasource=tranquility",
         kill_id, kill_hash
@@ -956,6 +947,36 @@ async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> 
 
 }
 
+async fn get_solar_name(system_id: String, client: Client) -> Result<String, reqwest::Error> {
+
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let system = sqlx::query!("SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?", system_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(system.solarSystemName.expect("Unable to return database record"))
+}
+
+async fn get_solar_id(system_name: String, client: Client) -> Result<i64, reqwest::Error> {
+
+    let db_connect = db_connect().await;
+    let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
+
+    let system = sqlx::query!("SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName IS ?", system_name)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+
+
+    Ok(system.solarSystemID)
+}
+
 async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Error> {
     let dt: Vec<&str> = date_string.split("T").collect();
     let date = dt[0].replace("\"", "");
@@ -999,11 +1020,11 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let mut kill_counter: i32 = 0;
     println!("Resolving most recent kills in system...");
     for key in system_zkb.iter() {
-        let k = kill_resolve(key.killmail_id.to_string(), key.zkb.hash.to_string()).await?;
+        let k = kill_resolve(key.killmail_id.to_string(), key.zkb.hash.to_string(), client.clone()).await?;
         ccp_kills.push(k);
 
         kill_counter += 1;
-        if kill_counter == 3 {
+        if kill_counter == 5 {
             break
         }
     };
@@ -1027,12 +1048,12 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
             char = resp[0]["name"].to_string()
 
         }
-        let corp = corp_info(kill.victim.corporation_id.to_string().as_str()).await?;
+        let corp = corp_info(kill.victim.corporation_id.to_string().as_str(), client.clone()).await?;
         let mut alli = String::new();
 
         match kill.victim.alliance_id {
             Some(i) => {
-                let x = alliance_info(kill.victim.alliance_id.unwrap().to_string()).await?;
+                let x = alliance_info(kill.victim.alliance_id.unwrap().to_string(), client.clone()).await?;
                 alli = x.name
 
             }
