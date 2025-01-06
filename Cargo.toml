@@ -1,6 +1,6 @@
 [package]
 name = "cleve"
-version = "0.4.0-sde"
+version = "0.4.7-sde"
 edition = "2021"
 
 [dependencies]
@@ -23,4 +23,5 @@ bzip2-rs = "0.1.2"
 thiserror = "2.0.9"
 miette = { version = "7.4.0", features = ["fancy"] }
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite"] }
+log = "0.4.21"
 

@@ -31,6 +31,7 @@ use rusqlite;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use zip_extensions::zip_extract;
+use log::debug;
 
 #[derive(Error, Diagnostic, Debug)]
 enum MyError {
@@ -588,24 +589,77 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
 
     let zs: Value = get_zkb_stats(char_id.clone(), client.clone()).await?;
 
-    let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string(), client.clone()).await?;
-    let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string(), client.clone()).await?;
+    let mut kills_vec = Vec::new();
+    let mut losses_vec = Vec::new();
+    let mut ships_kills_vec = Vec::new();
+    let mut ships_loss_vec = Vec::new();
 
-    let killed_with_j: String = item_lookup(
-        mr_kill.victim.ship_type_id
-            .to_string()
-            .replace("\"", ""),
-        client.clone(),
-    ).await?;
-    let killed_with: String = killed_with_j.replace("\"", "");
-    let lost_ship_j: String = item_lookup(
-        mr_loss.victim.ship_type_id
-            .to_string()
-            .replace("\"", ""),
-        client.clone(),
-    ).await?;
+    // knobs
+    let parse_limit = 5;
+    let mut current_kill = 0;
 
-    let lost_ship: String = lost_ship_j.replace("\"", "");
+
+    let kills_url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
+
+    let kills_response = client.get(kills_url).send().await?;
+    let zkb: Value = kills_response.json().await?;
+
+    while current_kill < parse_limit {
+        let mr_id: String = zkb[current_kill]["killmail_id"].to_string();
+        let mr_hash: String = zkb[current_kill]["zkb"]["hash"].to_string().replace("\"", "");
+
+        let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string(), client.clone()).await?;
+        kills_vec.push(mr_kill);
+        current_kill+=1;
+    }
+    for kill in kills_vec.iter() {
+        let killed_with_j: String = item_lookup(
+            kill.victim.ship_type_id
+                .to_string()
+                .replace("\"", ""),
+            client.clone(),
+        ).await?;
+        let killed_with: String = killed_with_j.replace("\"", "");
+        ships_kills_vec.push(killed_with);
+
+    }
+
+    let loss_url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
+
+    let loss_response = client.get(loss_url).send().await?;
+    let zkb: Value = loss_response.json().await?;
+
+    let mut current_loss = 0;
+    while current_loss < parse_limit {
+        let mr_id: String = zkb[current_loss]["killmail_id"].to_string();
+        let mr_hash: String = zkb[current_loss]["zkb"]["hash"].to_string().replace("\"", "");
+
+        let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string(), client.clone()).await?;
+        losses_vec.push(mr_kill);
+        current_loss+=1;
+    }
+    for loss in losses_vec.iter() {
+        let killed_with_j: String = item_lookup(
+            loss.victim.ship_type_id
+                .to_string()
+                .replace("\"", ""),
+            client.clone(),
+        ).await?;
+        let lost_with: String = killed_with_j.replace("\"", "");
+        ships_loss_vec.push(lost_with);
+
+    }
+
+
+
+    // let mr_kill: CcpKillmail = get_mr_kill_info(char_id.clone().to_string(), client.clone()).await?;
+    // let mr_loss: CcpKillmail = get_mr_loss_info(char_id.clone().to_string(), client.clone()).await?;
+
+
+
+
+
+
 
 
     println!("\n \nBasic info:");
@@ -656,11 +710,12 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
                 "Alliance evewho: https://evewho.com/alliance/{:?}",
                 c.alliance_id.unwrap()
             )
+
         }
 
     };
 
-    println!("\n\nZKB Stats:");
+    println!("\nZKB Stats:");
     println!(
         "Character Zkb: https://zkillboard.com/character/{}/",
         char_id
@@ -670,21 +725,46 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     println!("Solo kills: {}", zs["soloKills"]);
     println!("Solo losses: {}", zs["soloLosses"]);
 
-    let killtime = mr_kill.killmail_time.to_string();
-    let killtime_clean: String = date_parse(&killtime);
-    let kill_diff: i64 = date_calc(killtime.clone()).await?;
-    println!(
-        "\nMost recently killed a(n) {} on {} which was {} days ago",
-        killed_with, &killtime_clean, kill_diff
-    );
 
-    let losstime = mr_loss.killmail_time.to_string();
-    let losstime_clean: String = date_parse(&losstime);
-    let loss_diff = date_calc(losstime.clone()).await?;
-    println!(
-        "Most recently lost a(n) {} on {} which was {} days ago",
-        lost_ship, &losstime_clean, loss_diff
-    );
+    println!("\nMost recent kills:");
+    let mut idx = 0;
+    for kill in kills_vec.iter() {
+        let killtime = kill.killmail_time.to_string();
+        let killtime_clean: String = date_parse(&killtime);
+        let kill_diff= date_calc(killtime.clone()).await?;
+        let killed_with = &ships_kills_vec[idx];
+        let kill_system = get_timer_solar_name(kill.solar_system_id.to_string(), client.clone()).await?;
+        let kill_const = get_timer_const_id(kill.solar_system_id.to_string(), client.clone()).await?;
+        let kill_region = get_timer_region_id(kill_const.to_string(), client.clone()).await?;
+        let kill_region_name = get_timer_region_name(kill_region.to_string(), client.clone()).await?;
+        println!(
+            "{} days ago on {} killed a(n) {} in {} - {}",
+            kill_diff, &killtime_clean, killed_with, kill_system, kill_region_name
+        );
+
+        idx+=1;
+    }
+
+    println!("\nMost recent Losses:");
+    let mut idx = 0;
+    for loss in losses_vec.iter() {
+        let losstime = loss.killmail_time.to_string();
+        let losstime_clean: String = date_parse(&losstime);
+        let loss_diff = date_calc(losstime.clone()).await?;
+        let lost_ship = &ships_loss_vec[idx];
+        let loss_system = get_timer_solar_name(loss.solar_system_id.to_string(), client.clone()).await?;
+        let loss_const = get_timer_const_id(loss.solar_system_id.to_string(), client.clone()).await?;
+        let loss_region = get_timer_region_id(loss_const.to_string(), client.clone()).await?;
+        let loss_region_name = get_timer_region_name(loss_region.to_string(), client.clone()).await?;
+        println!(
+            "{} days ago on {} lost a(n) {} in {} - {}",
+            loss_diff, &losstime_clean, lost_ship, loss_system, loss_region_name
+        );
+
+        idx+=1;
+    }
+
+
 
     println!("\n \n");
     Ok(())
@@ -748,6 +828,36 @@ async fn alliance_info(corporation_id: String, client: Client) -> Result<Allianc
 async fn get_mr_kill_info(char_id: String, client: Client) -> Result<CcpKillmail, reqwest::Error> {
     // println!("Fetching most recent kill data...");
     let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
+
+    let kills_response = client.get(url).send().await?;
+    let zkb: Value = kills_response.json().await?;
+
+    let mr_id: String = zkb[0]["killmail_id"].to_string();
+    let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
+
+    let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string(), client.clone()).await?;
+
+    Ok(mr_kill)
+}
+
+async fn get_kill_info(char_id: String, client: Client) -> Result<CcpKillmail, reqwest::Error> {
+    // println!("Fetching most recent kill data...");
+    let url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
+
+    let kills_response = client.get(url).send().await?;
+    let zkb: Value = kills_response.json().await?;
+
+    let mr_id: String = zkb[0]["killmail_id"].to_string();
+    let mr_hash: String = zkb[0]["zkb"]["hash"].to_string().replace("\"", "");
+
+    let mr_kill: CcpKillmail = kill_resolve(mr_id.to_string(), mr_hash.to_string(), client.clone()).await?;
+
+    Ok(mr_kill)
+}
+
+async fn get_loss_info(char_id: String, client: Client) -> Result<CcpKillmail, reqwest::Error> {
+    // println!("Fetching most recent kill data...");
+    let url = format!("https://zkillboard.com/api/losses/characterID/{}/", char_id);
 
     let kills_response = client.get(url).send().await?;
     let zkb: Value = kills_response.json().await?;
@@ -891,9 +1001,9 @@ async fn name_lookup(item_name: String, client: Client) -> Result<Value, reqwest
     Ok(lookup)
 }
 
-async fn get_jumps(system_id: &str) -> Result<String, reqwest::Error> {
+async fn get_jumps(system_id: &str, client: Client) -> Result<String, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_jumps/?datasource=tranquility";
-    let sysjumps = reqwest::get(url).await?;
+    let sysjumps = client.get(url).send().await?;
     let jumpstruct: SysJumps = sysjumps.json().await?;
 
     let mut j: i64 = 0;
@@ -907,17 +1017,17 @@ async fn get_jumps(system_id: &str) -> Result<String, reqwest::Error> {
     Ok(jumps.to_string())
 }
 
-async fn get_gates(system_id: &str) -> Result<String, reqwest::Error> {
+async fn get_gates(system_id: &str, client: Client) -> Result<String, reqwest::Error> {
     let url = format!("https://esi.evetech.net/latest/universe/systems/{system_id}/");
-    let gate_response = reqwest::get(url).await?;
+    let gate_response = client.get(url).send().await?;
     let gates: SystemInfo = gate_response.json().await?;
     let num_gates = gates.stargates.len().to_string();
     Ok(num_gates)
 }
 
-async fn get_num_kills(system_id: &str) -> Result<Vec<String>, reqwest::Error> {
+async fn get_num_kills(system_id: &str, client: Client) -> Result<Vec<String>, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
-    let kills_response = reqwest::get(url).await?;
+    let kills_response = client.get(url).send().await?;
     let killsj: Value = kills_response.json().await?;
 
     let mut kills_vec: Vec<String> = Vec::new();
@@ -934,9 +1044,9 @@ async fn get_num_kills(system_id: &str) -> Result<Vec<String>, reqwest::Error> {
     Ok(kills_vec)
 }
 
-async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
+async fn get_npc_kills(system_id: &str, client: Client) -> Result<String, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
-    let kills_response = reqwest::get(url).await?;
+    let kills_response = client.get(url).send().await?;
     let kills_json: Value = kills_response.json().await?;
     let mut k: i64 = 0;
     for key in kills_json.as_object().iter() {
@@ -948,9 +1058,9 @@ async fn get_npc_kills(system_id: &str) -> Result<String, reqwest::Error> {
     Ok(kills)
 }
 
-async fn get_system_kills(system_id: &str) -> Result<SystemZkb, reqwest::Error> {
+async fn get_system_kills(system_id: &str, client: Client) -> Result<SystemZkb, reqwest::Error> {
     let url = format!("https://zkillboard.com/api/solarSystemID/{system_id}/");
-    let zkbsys_response = reqwest::get(url).await?;
+    let zkbsys_response = client.get(url).send().await?;
 
     let zkbsysj: SystemZkb = zkbsys_response.json().await?;
     Ok(zkbsysj)
@@ -1006,7 +1116,7 @@ async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, re
     let db_connect = db_connect().await;
     let pool = db_connect.acquire().await.expect("Unable to create new pool connection");
 
-    let system = sqlx::query!("SELECT constellationID FROM mapSolarSystems WHERE solarSystemName IS ?", system_id)
+    let system = sqlx::query!("SELECT constellationID FROM mapSolarSystems WHERE solarSystemID IS ?", system_id)
         .fetch_one(&db_connect)
         .await
         .expect("Unable to query the database");
@@ -1074,15 +1184,15 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     println!("Looking up system name...");
     let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
     println!("Looking up system id...");
-    let system_zkb = get_system_kills(system_id.as_str()).await?;
+    let system_zkb = get_system_kills(system_id.as_str(), client.clone()).await?;
     println!("Retrieving zkillboard for {system_name}...");
-    let kills = get_num_kills(system_id.as_str()).await?;
+    let kills = get_num_kills(system_id.as_str(), client.clone()).await?;
     println!("Retrieving total number of ships killed in system in the last hour...");
 
     println!("Retrieving total number of NPCs killed in system in the last hour...");
-    let system_jumps = get_jumps(system_id.as_str()).await?;
+    let system_jumps = get_jumps(system_id.as_str(), client.clone()).await?;
     println!("Retrieving total number of jumps in system in the last hour...");
-    let system_gates = get_gates(system_id.as_str()).await?;
+    let system_gates = get_gates(system_id.as_str(), client.clone()).await?;
     println!("Determining number of available stargates...");
     let mut ccp_kills: Vec<CcpKillmail> = Vec::with_capacity(5);
 
@@ -1318,18 +1428,20 @@ async fn get_incursions() -> Result<Incursions, reqwest::Error> {
 }
 
 async fn incursions() -> Result<(), MyError> {
+    let client = reqwest::Client::new();
     let mut output = Vec::new();
     let incursions: Incursions = get_incursions().await?;
 
     for incursion in incursions.iter() {
-        let const_info = get_const(incursion.constellation_id.to_string().as_str()).await?;
-        let region_info = get_region(const_info.region_id.to_string().as_str()).await?;
-        let staging_system = get_system(incursion.staging_solar_system_id.to_string().as_str()).await?;
+        // let const_info = get_const(incursion.constellation_id.to_string().as_str()).await?;
+        let region_id = get_timer_region_id(incursion.constellation_id.to_string(), client.clone()).await?;
+        let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
+        let staging_system = get_timer_solar_name(incursion.staging_solar_system_id.to_string(), client.clone()).await?;
         let state = incursion.state.as_str();
         let has_boss = incursion.has_boss;
         let out_string = format!("{:<30} {:<20} {:<20} {:<20}",
-            region_info.name,
-            staging_system.name,
+            region_name,
+            staging_system,
             state,
             has_boss);
         output.push(out_string)
