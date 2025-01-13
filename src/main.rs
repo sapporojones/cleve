@@ -274,7 +274,8 @@ struct AllianceID {
 pub struct CorpInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alliance_id: Option<u64>,
-    pub ceo_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ceo_id: Option<i64>,
     pub creator_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_founded: Option<String>,
@@ -338,11 +339,27 @@ pub struct CcpKillmail {
     pub victim: Victim,
 }
 
+// #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+// pub struct Attacker {
+//     pub damage_done: i64,
+//     pub final_blow: bool,
+//     pub security_status: f64,
+// }
+
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct Attacker {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alliance_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub character_id: Option<i64>,
+    pub corporation_id: i64,
     pub damage_done: i64,
     pub final_blow: bool,
     pub security_status: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ship_type_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weapon_type_id: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -357,7 +374,8 @@ pub struct Victim {
     pub faction_id: Option<i64>,
     pub items: Vec<Option<serde_json::Value>>,
     pub position: KillPosition,
-    pub ship_type_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ship_type_id: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -595,8 +613,9 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     let mut ships_loss_vec = Vec::new();
 
     // knobs
-    let parse_limit = 5;
-    let mut current_kill = 0;
+
+
+
 
 
     let kills_url = format!("https://zkillboard.com/api/kills/characterID/{}/", char_id);
@@ -604,7 +623,26 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     let kills_response = client.get(kills_url).send().await?;
     let zkb: Value = kills_response.json().await?;
 
-    while current_kill < parse_limit {
+    let kill_parse_limit: usize = if zs["shipsDestroyed"].as_i64().expect("Couldn't determine number of ships interacted with") < i64::from(5) {
+        let parse_limit = zs["shipsDestroyed"].as_u64().expect("Couldn't determine number of ships interacted with");
+        parse_limit as usize
+    } else {
+        let parse_limit = 5;
+        parse_limit
+    };
+    let loss_parse_limit: usize = if zs["shipsLost"].as_i64().expect("Couldn't determine number of ships interacted with") < i64::from(5) {
+        let parse_limit = zs["shipsLost"].as_u64().expect("Couldn't determine number of ships interacted with");
+        parse_limit as usize
+    } else {
+        let parse_limit = 5;
+        parse_limit
+    };
+
+
+    // let parse_limit = 5;
+    let mut current_kill: usize = 0;
+
+    while current_kill < kill_parse_limit {
         let mr_id: String = zkb[current_kill]["killmail_id"].to_string();
         let mr_hash: String = zkb[current_kill]["zkb"]["hash"].to_string().replace("\"", "");
 
@@ -612,15 +650,40 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         kills_vec.push(mr_kill);
         current_kill+=1;
     }
+    let mut attack_ship = Vec::new();
     for kill in kills_vec.iter() {
         let killed_with_j: String = item_lookup(
-            kill.victim.ship_type_id
+            kill.victim.ship_type_id.expect("Can't find victim ship type")
                 .to_string()
                 .replace("\"", ""),
             client.clone(),
         ).await?;
         let killed_with: String = killed_with_j.replace("\"", "");
         ships_kills_vec.push(killed_with);
+
+        for attacker in kill.attackers.iter() {
+
+            if attacker.character_id.is_none() {
+                // println!("attacker.character_id is none");
+                let attack_ship_id = attacker.ship_type_id.expect("Could not determine ship ID").to_string();
+                let attack_tmp = item_lookup(attack_ship_id, client.clone()).await?;
+                attack_ship.push(attack_tmp)
+            } else if attacker.character_id.expect("Can't find character ID on kill for some reaosn").to_string() == char_id {
+                if attacker.ship_type_id.is_none() {
+                    // println!("attacker.character_id = char_id");
+                    let attack_ship_id = attacker.weapon_type_id.expect("Can't find weapon type used").to_string();
+                    let attack_tmp = item_lookup(attack_ship_id, client.clone()).await?;
+                    attack_ship.push(attack_tmp)
+                } else {
+                    // println!("attacker.character_id else condition");
+                    let attack_ship_id = attacker.ship_type_id.expect("Could not determine ship ID").to_string();
+                    let attack_tmp = item_lookup(attack_ship_id, client.clone()).await?;
+                    attack_ship.push(attack_tmp)
+                }
+
+            }
+        }
+
 
     }
 
@@ -630,7 +693,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     let zkb: Value = loss_response.json().await?;
 
     let mut current_loss = 0;
-    while current_loss < parse_limit {
+    while current_loss < loss_parse_limit {
         let mr_id: String = zkb[current_loss]["killmail_id"].to_string();
         let mr_hash: String = zkb[current_loss]["zkb"]["hash"].to_string().replace("\"", "");
 
@@ -640,7 +703,7 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     }
     for loss in losses_vec.iter() {
         let killed_with_j: String = item_lookup(
-            loss.victim.ship_type_id
+            loss.victim.ship_type_id.expect("Can't find victim ship type")
                 .to_string()
                 .replace("\"", ""),
             client.clone(),
@@ -738,8 +801,8 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         let kill_region = get_timer_region_id(kill_const.to_string(), client.clone()).await?;
         let kill_region_name = get_timer_region_name(kill_region.to_string(), client.clone()).await?;
         println!(
-            "{} days ago on {} killed a(n) {} in {} - {}",
-            kill_diff, &killtime_clean, killed_with, kill_system, kill_region_name
+            "{} days ago on {} killed a(n) {} while flying a {} in {} - {}",
+            kill_diff, &killtime_clean, killed_with, attack_ship[idx], kill_system, kill_region_name
         );
 
         idx+=1;
@@ -1208,6 +1271,12 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         }
     };
 
+    let const_id = get_timer_const_id(system_id, client.clone()).await?;
+    let region_id = get_timer_region_id(const_id.to_string(), client.clone()).await?;
+    let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
+
+
+
 
     let mut ship = String::new();
     let mut char = String::new();
@@ -1218,7 +1287,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let mut alli = String::new();
     for kill in ccp_kills {
         let mut output: Vec<String> = Vec::new();
-        let ship = item_lookup(kill.victim.ship_type_id.to_string(), client.clone()).await?;
+        let ship = item_lookup(kill.victim.ship_type_id.expect("Can't find victim ship type").to_string(), client.clone()).await?;
         if kill.victim.character_id.is_none() {
             char = "None".to_string()
         } else {
@@ -1251,7 +1320,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         outputwrapper.push(output);
 
     };
-    println!("\n\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
+    println!("\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
              "Kill Age:",
              "Victim Ship:",
              "Victim Name:",
@@ -1291,6 +1360,8 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     // let npckills = kills.get(0).unwrap().to_string();
     // let podkills = kills.get(1).unwrap().to_string();
     // let shipkills = kills.get(3).unwrap().to_string();
+
+    println!("\nDotlan Map URL: https://evemaps.dotlan.net/map/{}/{}", region_name.replace(" ", "_"), system_name);
 
     println!("\nShips destroyed last hour: \t{:<30}", shipkills);
     println!("Capsules destroyed last hour: \t{:<30}", podkills);
@@ -1413,7 +1484,7 @@ async fn timers() -> Result<(), reqwest::Error> {
              "defender:",
              "attacker_score:");
     for line in output.iter() {
-        print!("\n{}", line);
+        print!("{}\n", line);
         io::stdout().flush().unwrap();
     }
     println!("\n");
