@@ -755,8 +755,9 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
         c.ticker.to_string().replace("\"", "")
     );
     // println!("Ticker: {}", c["ticker"]);
+    let tax_rate = c.tax_rate * 100.0;
     println!("Corporation members: {}", c.member_count);
-    println!("Corporation tax rate: {}", c.tax_rate);
+    println!("Corporation tax rate: {}", tax_rate);
 
     let corp_bday_raw: String = c.date_founded.unwrap().to_string().replace("\"", "");
     let corp_bday: String = date_parse(&corp_bday_raw);
