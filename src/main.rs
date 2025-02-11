@@ -1,3 +1,4 @@
+use std::alloc::System;
 use std::fmt::Error as FError;
 use std::io::{Read, Write};
 use std::io;
@@ -92,7 +93,6 @@ pub struct RegionInfo {
     pub region_id: i64,
 }
 
-
 #[derive(Serialize, Deserialize)]
 pub struct ConstInfo {
     pub constellation_id: i64,
@@ -138,6 +138,17 @@ pub struct Zkb {
     pub solo: bool,
     pub awox: bool,
     pub labels: Vec<String>,
+}
+
+
+pub type EsiSystemKills = Vec<SystemKills>;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SystemKills {
+    pub npc_kills: i64,
+    pub pod_kills: i64,
+    pub ship_kills: i64,
+    pub system_id: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -352,7 +363,8 @@ pub struct Attacker {
     pub alliance_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_id: Option<i64>,
-    pub corporation_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corporation_id: Option<i64>,
     pub damage_done: i64,
     pub final_blow: bool,
     pub security_status: f64,
@@ -368,7 +380,8 @@ pub struct Victim {
     pub alliance_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_id: Option<i64>,
-    pub corporation_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corporation_id: Option<i64>,
     pub damage_taken: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub faction_id: Option<i64>,
@@ -1091,15 +1104,15 @@ async fn get_gates(system_id: &str, client: Client) -> Result<String, reqwest::E
 async fn get_num_kills(system_id: &str, client: Client) -> Result<Vec<String>, reqwest::Error> {
     let url = "https://esi.evetech.net/latest/universe/system_kills/?datasource=tranquility";
     let kills_response = client.get(url).send().await?;
-    let killsj: Value = kills_response.json().await?;
+    let killsj: EsiSystemKills = kills_response.json().await?;
 
     let mut kills_vec: Vec<String> = Vec::new();
-    for key in killsj.as_object().iter() {
-        if key["system_id"].to_string().as_str() == system_id {
 
-            kills_vec.push(key["npc_kills"].to_string());
-            kills_vec.push(key["pod_kills"].to_string());
-            kills_vec.push(key["ship_kills"].to_string());
+    for key in killsj.iter() {
+        if key.system_id.to_string().as_str() == system_id {
+            kills_vec.push(key.npc_kills.to_string());
+            kills_vec.push(key.pod_kills.to_string());
+            kills_vec.push(key.ship_kills.to_string());
 
         };
     };
@@ -1296,7 +1309,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
             char = resp[0]["name"].to_string()
 
         }
-        let corp = corp_info(kill.victim.corporation_id.to_string().as_str(), client.clone()).await?;
+        let corp = corp_info(kill.victim.corporation_id.unwrap().to_string().as_str(), client.clone()).await?;
         let mut alli = String::new();
 
         match kill.victim.alliance_id {
@@ -1342,24 +1355,24 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
     let mut npckills = String::new();
     let mut podkills = String::new();
     let mut shipkills = String::new();
-    if kills.get(0).is_none() {
-        npckills = 0.to_string()
-    } else {
-        npckills = kills.get(0).unwrap().to_string();
-    };
-    if kills.get(1).is_none() {
-        podkills = 0.to_string()
-    } else {
-        podkills = kills.get(0).unwrap().to_string();
-    };
-    if kills.get(0).is_none() {
-        shipkills = 0.to_string()
-    } else {
-        shipkills = kills.get(0).unwrap().to_string();
-    };
-    // let npckills = kills.get(0).unwrap().to_string();
-    // let podkills = kills.get(1).unwrap().to_string();
-    // let shipkills = kills.get(3).unwrap().to_string();
+    // if kills.get(0).is_none() {
+    //     npckills = 0.to_string()
+    // } else {
+    //     npckills = kills.get(0).unwrap().to_string();
+    // };
+    // if kills.get(1).is_none() {
+    //     podkills = 0.to_string()
+    // } else {
+    //     podkills = kills.get(0).unwrap().to_string();
+    // };
+    // if kills.get(2).is_none() {
+    //     shipkills = 0.to_string()
+    // } else {
+    //     shipkills = kills.get(0).unwrap().to_string();
+    // };
+    let npckills = kills.get(0).unwrap().to_string();
+    let podkills = kills.get(1).unwrap().to_string();
+    let shipkills = kills.get(2).unwrap().to_string();
 
     println!("\nDotlan Map URL: https://evemaps.dotlan.net/map/{}/{}", region_name.replace(" ", "_"), system_name);
 

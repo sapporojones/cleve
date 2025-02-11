@@ -1,6 +1,6 @@
 [package]
 name = "cleve"
-version = "0.4.7-sde"
+version = "0.4.8-sde"
 edition = "2021"
 
 [dependencies]
