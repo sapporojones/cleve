@@ -15,23 +15,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: download cleve repo
+    - name: Download cleve repo
       uses: actions/checkout@v4
 
-    - name: add sqlx cli to environment so later we can cache eve sde db queries for macro use
+    - name: Add sqlx cli to environment so later we can cache eve sde db queries for macro use
       run: cargo install sqlx-cli
 
-    - name: add wget and use it to download the EVE SDE from fuzzworks
+    - name: Add wget and use it to download the EVE SDE from fuzzworks
       uses: wei/wget@v1
       with:
         args: -O sqlite-latest.sqlite.bz2 https://www.fuzzwork.co.uk/dump/sqlite-latest.sqlite.bz2
 
-    - name: add 7zip to actions environment and decompress the EVE SDE from fuzzworks
+    - name: Add 7zip to actions environment and decompress the EVE SDE from fuzzworks
       uses: milliewalky/setup-7-zip@v2
       with:
         # 7-Zip release tag from its GitHub Releases page e.g. 24.07.
         # default: latest
-        tag: ""
+        tag: "latest"
         args: x sqlite-latest.sqlite.bz2
 
     - name: Prepare db queries for macro use
