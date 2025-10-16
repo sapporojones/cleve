@@ -32,7 +32,9 @@ jobs:
         # 7-Zip release tag from its GitHub Releases page e.g. 24.07.
         # default: latest
         tag: "latest"
-        args: x sqlite-latest.sqlite.bz2
+
+    - name: Run 7zip to decompress EVE SDE
+      run: 7z x sqlite-latest.sqlite.bz2
 
     - name: Prepare db queries for macro use
       run: cargo sqlx prepare
