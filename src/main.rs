@@ -1710,3 +1710,137 @@ async fn get_sde_components() -> Result<(), MyError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+    use sqlx::testing::TestTermination;
+    use std::io::Error;
+
+    // Check if ESI is responding by querying status and expecting a 200 status code
+    #[test]
+    fn check_esi() -> Result<(), MyError> {
+        let url = "https://esi.evetech.net/latest/status/?datasource=tranquility";
+        let status_response = reqwest::blocking::get(url)?;
+
+        if status_response.status().is_success() {
+            Ok(())
+        } else {
+            Err(panic!(
+                "ESI response code was {}",
+                status_response.status().to_string()
+            ))
+        }
+    }
+
+    // Check if ESI server status endpoint is responding by querying status and expecting a 200 status code
+    #[test]
+    fn check_api_endpoint_tq_status() -> Result<(), MyError> {
+        let url = "https://esi.evetech.net/latest/status/?datasource=tranquility";
+        let status_response = reqwest::blocking::get(url)?;
+
+        if status_response.status().is_success() {
+            Ok(())
+        } else {
+            Err(panic!(
+                "ESI response code was {}",
+                status_response.status().to_string()
+            ))
+        }
+    }
+
+    // Check if eve scout thera endpoint is responding by querying status and expecting a 200 status code
+    #[test]
+    fn check_api_endpoint_thera() -> Result<(), MyError> {
+        let status_response = reqwest::blocking::get(
+            "https://api.eve-scout.com//v2/public/signatures?system_name=thera",
+        )?;
+        if status_response.status().is_success() {
+            Ok(())
+        } else {
+            Err(panic!(
+                "ESI response code was {}",
+                status_response.status().to_string()
+            ))
+        }
+    }
+
+    // Check if eve scout turnur endpoint is responding by querying status and expecting a 200 status code
+    #[test]
+    fn check_api_endpoint_turnur() -> Result<(), MyError> {
+        let status_response = reqwest::blocking::get(
+            "https://api.eve-scout.com//v2/public/signatures?system_name=turnur",
+        )?;
+        if status_response.status().is_success() {
+            Ok(())
+        } else {
+            Err(panic!(
+                "ESI response code was {}",
+                status_response.status().to_string()
+            ))
+        }
+    }
+
+    // Check if ESI incursions endpoint is responding by querying and expecting a 200 status code
+    #[test]
+    fn check_api_endpoint_incursions() -> Result<(), MyError> {
+        let url = "https://esi.evetech.net/latest/incursions/?datasource=tranquility";
+        let status_response = reqwest::blocking::get(url)?;
+
+        if status_response.status().is_success() {
+            Ok(())
+        } else {
+            Err(panic!(
+                "ESI response code was {}",
+                status_response.status().to_string()
+            ))
+        }
+    }
+
+    // Check if ESI campaigns endpoint is responding
+    #[test]
+    fn check_api_endpoint_campaigns() -> Result<(), MyError> {
+        let url = "https://esi.evetech.net/latest/sovereignty/campaigns/?datasource=tranquility";
+        let status_response = reqwest::blocking::get(url)?;
+
+        if status_response.status().is_success() {
+            Ok(())
+        } else {
+            Err(panic!(
+                "ESI response code was {}",
+                status_response.status().to_string()
+            ))
+        }
+    }
+
+    // Check if the timers function runs successfully
+    #[tokio::test]
+    async fn check_feature_timers() -> Result<()> {
+        if timers().await.is_success() {
+            Ok(())
+        } else {
+            Err(panic!("Function test failed."))
+        }
+    }
+
+    // Check if the shlookup function (the pilot command) runs successfully
+    #[tokio::test]
+    async fn check_feature_shlookup() -> Result<()> {
+        if shlookup("Sapporo Jones").await.is_success() {
+            Ok(())
+        } else {
+            Err(panic!("Function test failed."))
+        }
+    }
+
+    // Check if the system status function (the system command) runs successfully
+    #[tokio::test]
+    async fn check_feature_system() -> Result<()> {
+        if system_stats("3T7-M8").await.is_success() {
+            Ok(())
+        } else {
+            Err(panic!("Function test failed."))
+        }
+    }
+}

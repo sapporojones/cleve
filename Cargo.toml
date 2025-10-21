@@ -1,6 +1,6 @@
 [package]
 name = "cleve"
-version = "0.4.8-sde"
+version = "0.5.1"
 edition = "2021"
 
 [dependencies]
@@ -12,7 +12,7 @@ chrono = "0.4.38"
 serde_with = "3.9.0"
 rusqlite = { version = "0.32.0", features = ["bundled"] }
 tempfile = "3.14.0"
-reqwest = { version = "0.12.11", features = ["json", "stream"] }
+reqwest = { version = "0.12.11", features = ["json", "stream", "blocking"] }
 futures-util = "0.3.31"
 zip = "2.2.2"
 zip-extensions = "0.8.1"
