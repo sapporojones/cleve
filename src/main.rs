@@ -1,3 +1,10 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(unreachable_code)]
+#![allow(unused)]
+
+use std::fs::remove_file;
 use bzip2_rs::DecoderReader;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -452,7 +459,7 @@ async fn main() -> Result<(), reqwest::Error> {
             println!("Completed in {} seconds.", duration.as_secs_f64());
         }
         Some(Commands::Timers) => {
-            timers().await;
+            timers().await?;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -1666,7 +1673,7 @@ async fn get_sde_components() -> Result<(), MyError> {
 
     sde_present = Path::new("sqlite-latest.sqlite").exists();
     if sde_present {
-        std::fs::remove_file("sqlite-latest.sqlite").unwrap();
+        remove_file("sqlite-latest.sqlite").unwrap();
     }
 
     let client = Client::new();
@@ -1703,7 +1710,7 @@ async fn get_sde_components() -> Result<(), MyError> {
 
     sde_present = Path::new("sqlite-latest.sqlite.bz2").exists();
     if sde_present {
-        std::fs::remove_file("sqlite-latest.sqlite.bz2").unwrap();
+        remove_file("sqlite-latest.sqlite.bz2").unwrap();
     }
 
     println!("Done!");
@@ -1719,10 +1726,10 @@ mod tests {
     use std::io::Error;
 
     // Check if ESI is responding by querying status and expecting a 200 status code
-    #[test]
-    fn check_esi() -> Result<(), MyError> {
+    #[tokio::test]
+    async fn check_esi() -> Result<(), MyError> {
         let url = "https://esi.evetech.net/latest/status/?datasource=tranquility";
-        let status_response = reqwest::blocking::get(url)?;
+        let status_response = reqwest::get(url).await?;
 
         if status_response.status().is_success() {
             Ok(())
@@ -1735,10 +1742,10 @@ mod tests {
     }
 
     // Check if ESI server status endpoint is responding by querying status and expecting a 200 status code
-    #[test]
-    fn check_api_endpoint_tq_status() -> Result<(), MyError> {
+    #[tokio::test]
+    async fn check_api_endpoint_tq_status() -> Result<(), MyError> {
         let url = "https://esi.evetech.net/latest/status/?datasource=tranquility";
-        let status_response = reqwest::blocking::get(url)?;
+        let status_response = reqwest::get(url).await?;
 
         if status_response.status().is_success() {
             Ok(())
@@ -1751,11 +1758,11 @@ mod tests {
     }
 
     // Check if eve scout thera endpoint is responding by querying status and expecting a 200 status code
-    #[test]
-    fn check_api_endpoint_thera() -> Result<(), MyError> {
-        let status_response = reqwest::blocking::get(
+    #[tokio::test]
+    async fn check_api_endpoint_thera() -> Result<(), MyError> {
+        let status_response = reqwest::get(
             "https://api.eve-scout.com//v2/public/signatures?system_name=thera",
-        )?;
+        ).await?;
         if status_response.status().is_success() {
             Ok(())
         } else {
@@ -1767,11 +1774,11 @@ mod tests {
     }
 
     // Check if eve scout turnur endpoint is responding by querying status and expecting a 200 status code
-    #[test]
-    fn check_api_endpoint_turnur() -> Result<(), MyError> {
-        let status_response = reqwest::blocking::get(
+    #[tokio::test]
+    async fn check_api_endpoint_turnur() -> Result<(), MyError> {
+        let status_response = reqwest::get(
             "https://api.eve-scout.com//v2/public/signatures?system_name=turnur",
-        )?;
+        ).await?;
         if status_response.status().is_success() {
             Ok(())
         } else {
@@ -1783,10 +1790,10 @@ mod tests {
     }
 
     // Check if ESI incursions endpoint is responding by querying and expecting a 200 status code
-    #[test]
-    fn check_api_endpoint_incursions() -> Result<(), MyError> {
+    #[tokio::test]
+    async fn check_api_endpoint_incursions() -> Result<(), MyError> {
         let url = "https://esi.evetech.net/latest/incursions/?datasource=tranquility";
-        let status_response = reqwest::blocking::get(url)?;
+        let status_response = reqwest::get(url).await?;
 
         if status_response.status().is_success() {
             Ok(())
@@ -1799,10 +1806,10 @@ mod tests {
     }
 
     // Check if ESI campaigns endpoint is responding
-    #[test]
-    fn check_api_endpoint_campaigns() -> Result<(), MyError> {
+    #[tokio::test]
+    async fn check_api_endpoint_campaigns() -> Result<(), MyError> {
         let url = "https://esi.evetech.net/latest/sovereignty/campaigns/?datasource=tranquility";
-        let status_response = reqwest::blocking::get(url)?;
+        let status_response = reqwest::get(url).await?;
 
         if status_response.status().is_success() {
             Ok(())
@@ -1837,7 +1844,7 @@ mod tests {
     // Check if the system status function (the system command) runs successfully
     #[tokio::test]
     async fn check_feature_system() -> Result<()> {
-        if system_stats("3T7-M8").await.is_success() {
+        if system_stats("Jita").await.is_success() {
             Ok(())
         } else {
             Err(panic!("Function test failed."))
