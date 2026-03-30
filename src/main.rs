@@ -583,7 +583,9 @@ async fn status() -> Result<(), reqwest::Error> {
 }
 
 async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent("Simple zkb stats/kill parser")
+        .build()?;
     // // known character ids for testing with:
     // // sappo = 772506501
     // // billy = 1826057122
@@ -614,9 +616,11 @@ async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
     let kills_response = client.get(kills_url).send().await?;
     let zkb: Value = kills_response.json().await?;
 
+    let zkb_sd: u64 = zs["shipsDestroyed"].as_u64().expect("Expected 'shipsDestroyed'");
+
     let kill_parse_limit: usize = if zs["shipsDestroyed"]
         .as_i64()
-        .expect("Couldn't determine number of ships interacted with")
+        .expect(zkb_sd.to_string().as_str())
         < i64::from(5)
     {
         let parse_limit = zs["shipsDestroyed"]
@@ -974,6 +978,7 @@ async fn get_zkb_stats(char_id: String, client: Client) -> Result<Value, reqwest
     let url = format!("https://zkillboard.com/api/stats/characterID/{}/", char_id);
 
     let response = client.get(url).send().await?;
+
     let zkb = response.json().await?;
 
     Ok(zkb)
@@ -1268,7 +1273,9 @@ async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Erro
 }
 
 async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent("A simple zkb stats/kills parser")
+        .build()?;
     let system_id_lookup = name_lookup(system_name.to_string(), client.clone()).await?;
 
     println!("Looking up system name...");
