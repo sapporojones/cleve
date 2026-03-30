@@ -1272,17 +1272,18 @@ async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Erro
     Ok(delta)
 }
 
-async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
+async fn system_stats(sys_name: &str) -> Result<(), reqwest::Error> {
     let client = reqwest::Client::builder()
         .user_agent("A simple zkb stats/kills parser")
         .build()?;
+    let system_name = sys_name.to_uppercase();
     let system_id_lookup = name_lookup(system_name.to_string(), client.clone()).await?;
 
     println!("Looking up system name...");
     let system_id: String = system_id_lookup["systems"][0]["id"].to_string();
     println!("Looking up system id...");
     let system_zkb = get_system_kills(system_id.as_str(), client.clone()).await?;
-    println!("Retrieving zkillboard for {system_name}...");
+    println!("Retrieving zkillboard for {sys_name}...");
     let kills = get_num_kills(system_id.as_str(), client.clone()).await?;
     println!("Retrieving total number of ships killed in system in the last hour...");
 
@@ -1321,6 +1322,14 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
 
     let mut outputwrapper = Vec::new();
     let alli = String::new();
+
+    // container values for max len checking later
+    let mut kdlen: u8 = 0;
+    let mut stlen: u8 = 0;
+    let mut charlen: u8 = 0;
+    let mut corplen: u8 = 0;
+    let mut alllen: u8 = 0;
+
     for kill in ccp_kills {
         let mut output: Vec<String> = Vec::new();
         let ship = item_lookup(
@@ -1361,6 +1370,7 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         }
 
         let killdelta = killmail_time_calc(kill.killmail_time).await?;
+
         output.push(killdelta);
 
         output.push(ship.to_string());
@@ -1369,6 +1379,11 @@ async fn system_stats(system_name: &str) -> Result<(), reqwest::Error> {
         output.push(alli);
         outputwrapper.push(output);
     }
+
+    // Need to determine the longest value in the output vecs in order to size columns correctly
+
+
+
     println!(
         "\nMost recent kill info for {system_name}:\n{:<15} {:<30} {:<25} {:<37} {:<25}",
         "Kill Age:", "Victim Ship:", "Victim Name:", "Victim Corp:", "Victim Alliance:"
@@ -1486,6 +1501,8 @@ async fn timers() -> Result<(), reqwest::Error> {
         let defender = defender_value.name;
 
         let timer_start = timer_time_calc(timer.start_time.to_string()).await?;
+
+
 
         output.push(format!(
             "{:<20} {:<20} {:<20} {:<50} {:<20}",
