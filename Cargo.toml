@@ -23,4 +23,5 @@ thiserror = "2.0.9"
 miette = { version = "7.4.0", features = ["fancy"] }
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite"] }
 log = "0.4.21"
+serde-jsonlines = { version = "0.7.0", features = ["async"] }
 

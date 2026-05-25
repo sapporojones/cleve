@@ -20,11 +20,14 @@ use std::path::Path;
 use std::string::String;
 use std::time::SystemTime;
 use thiserror::Error;
-
-use tokio::io::AsyncWriteExt;
+use serde_jsonlines::AsyncJsonLinesReader;
+use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::fs::File;
 
 #[derive(Error, Diagnostic, Debug)]
 enum MyError {
+    // #[error("Assertion failed")]
+    // AE(#[from] tokio::task::),
     #[error("IO Error")]
     IO(#[from] std::io::Error),
     #[error("FE Error")]
@@ -43,6 +46,45 @@ async fn db_connect() -> Pool<Sqlite> {
         .await
         .expect("Unable to connect to database");
     pool
+}
+
+#[derive(Serialize, Deserialize)]
+struct Langstruct {
+    pub de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ja: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ko: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ru: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zh: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SDETypestruct {
+    pub _key: i64,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "basePrice", skip_serializing_if = "Option::is_none")]
+    pub base_price: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<Langstruct>,
+    #[serde(rename = "groupID")]
+    pub group_id: i64,
+    pub name: Langstruct,
+    #[serde(rename = "portionSize")]
+    pub portion_size: i64,
+    pub published: bool,
+    #[serde(rename = "raceID", skip_serializing_if = "Option::is_none")]
+    pub race_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f64>,
 }
 
 pub type Incursions = Vec<IncursionStruct>;
@@ -287,7 +329,10 @@ pub struct AllianceInfo {
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
+// #[command(value_delimiter = " ")]
 struct Cli {
+    // #[command(value_delimiter = true)]
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -1748,6 +1793,7 @@ mod tests {
     use reqwest::StatusCode;
     use sqlx::testing::TestTermination;
     use std::io::Error;
+    use futures_util::TryStreamExt;
 
     // Check if ESI is responding by querying status and expecting a 200 status code
     #[tokio::test]
@@ -1873,5 +1919,26 @@ mod tests {
         } else {
             Err(panic!("Function test failed."))
         }
+    }
+    // Check if JSONLines parsing works for inventory types (types.jsonl)
+    #[tokio::test]
+    async fn check_types_parsing() -> Result<(), Box<dyn std::error::Error>> {
+        let fp = BufReader::new(File::open("types.jsonl").await?);
+        let reader = AsyncJsonLinesReader::new(fp);
+        let typesde = reader
+            .read_all::<SDETypestruct>()
+            .try_collect::<Vec<_>>()
+            .await?;
+        let testvar = 3125;
+        let mut foundvar = false;
+        for x in typesde {
+            if x._key == 3125 {
+                foundvar = true;
+            }
+        }
+        if !foundvar {
+            panic!("Something failed parsing the SDE JSONL");
+        }
+        Ok(())
     }
 }
