@@ -8,7 +8,7 @@ use std::fs::remove_file;
 use bzip2_rs::DecoderReader;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use miette::{Diagnostic, Result};
 use reqwest::{Client, header::USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,10 @@ use thiserror::Error;
 use serde_jsonlines::AsyncJsonLinesReader;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::fs::File;
+use std::path::PathBuf;
+use clap::builder::TypedValueParser;
+use zip_extensions::*;
+
 
 #[derive(Error, Diagnostic, Debug)]
 enum MyError {
@@ -40,13 +44,13 @@ enum MyError {
     Custom(String),
 }
 
-async fn db_connect() -> Pool<Sqlite> {
-    let db_url: &str = "sqlite://sqlite-latest.sqlite";
-    let pool = SqlitePool::connect(db_url)
-        .await
-        .expect("Unable to connect to database");
-    pool
-}
+// async fn db_connect() -> Pool<Sqlite> {
+//     let db_url: &str = "sqlite://sqlite-latest.sqlite";
+//     let pool = SqlitePool::connect(db_url)
+//         .await
+//         .expect("Unable to connect to database");
+//     pool
+// }
 
 #[derive(Serialize, Deserialize)]
 struct Langstruct {
@@ -85,6 +89,51 @@ struct SDETypestruct {
     pub race_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub volume: Option<f64>,
+}
+
+
+
+#[derive(Serialize, Deserialize)]
+struct SDESystemStruct {
+    pub _key: i64,
+    #[serde(rename = "constellationID")]
+    pub constellation_id: i64,
+    #[serde(rename = "disallowedAnchorCategories", skip_serializing_if = "Option::is_none")]
+    pub disallowed_anchor_categories: Option<Vec<i64>>,
+    pub name: Langstruct,
+    pub position: Position,
+    pub radius: f64,
+    #[serde(rename = "regionID")]
+    pub region_id: i64,
+    #[serde(rename = "securityStatus")]
+    pub security_status: f64,
+}
+
+
+#[derive(Serialize, Deserialize)]
+struct SDEConstStruct {
+    pub _key: i64,
+    pub name: Langstruct,
+    pub position: Position,
+    #[serde(rename = "regionID")]
+    pub region_id: i64,
+    #[serde(rename = "solarSystemIDs")]
+    pub solar_system_ids: Vec<i64>,
+    #[serde(rename = "wormholeClassID", skip_serializing_if = "Option::is_none")]
+    pub wormhole_class_id: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SDERegionStruct {
+    pub _key: i64,
+    #[serde(rename = "constellationIDs")]
+    pub constellation_ids: Vec<i64>,
+    pub name: Langstruct,
+    #[serde(rename = "nebulaID")]
+    pub nebula_id: i64,
+    pub position: Position,
+    #[serde(rename = "wormholeClassID", skip_serializing_if = "Option::is_none")]
+    pub wormhole_class_id: Option<i64>,
 }
 
 pub type Incursions = Vec<IncursionStruct>;
@@ -442,7 +491,7 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
+async fn main() -> Result<(), MyError> {
     let start = SystemTime::now();
     let cli = Cli::parse();
 
@@ -627,7 +676,7 @@ async fn status() -> Result<(), reqwest::Error> {
     Ok(())
 }
 
-async fn shlookup(char_name: &str) -> Result<(), reqwest::Error> {
+async fn shlookup(char_name: &str) -> Result<(), MyError> {
     let client = reqwest::Client::builder()
         .user_agent("Simple zkb stats/kill parser")
         .build()?;
@@ -1076,19 +1125,36 @@ fn date_parse(date_string: &String) -> String {
     naive_dt.to_string()
 }
 
-async fn item_lookup(item_id: String, client: Client) -> Result<String, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+async fn item_lookup(item_id: String, client: Client) -> Result<String, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let item = sqlx::query!("SELECT  typeName FROM invTypes WHERE typeID IS ?", item_id)
+    //     .fetch_one(&db_connect)
+    //     .await
+    //     .expect("Unable to query the database");
+    //
+    // Ok(item.typeName.expect("Unable to return database record"))
 
-    let item = sqlx::query!("SELECT  typeName FROM invTypes WHERE typeID IS ?", item_id)
-        .fetch_one(&db_connect)
-        .await
-        .expect("Unable to query the database");
-
-    Ok(item.typeName.expect("Unable to return database record"))
+    // no more dbs so converting to jsonl
+    let fp = BufReader::new(File::open("./sde/types.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDETypestruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    let itemid: i64 = item_id.parse().unwrap();
+    // let mut foundvar = false;
+    let mut name = String::new();
+    for x in typesde {
+        if x._key == itemid {
+            name = x.name.en.expect("couldn't locate itemid in types.jsonl");
+        }
+    }
+    Ok(name)
 }
 async fn legacy_item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[{}]", item_id);
@@ -1180,123 +1246,216 @@ async fn get_system_kills(system_id: &str, client: Client) -> Result<SystemZkb, 
     Ok(zkbsysj)
 }
 
-async fn get_solar_name(system_id: String, client: Client) -> Result<String, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+async fn get_solar_name(system_id: String, client: Client) -> Result<String, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let system = sqlx::query!(
+    //     "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?",
+    //     system_id
+    // )
+    // .fetch_one(&db_connect)
+    // .await
+    // .expect("Unable to query the database");
+    //
+    // Ok(system
+    //     .solarSystemName
+    //     .expect("Unable to return database record"))
 
-    let system = sqlx::query!(
-        "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?",
-        system_id
-    )
-    .fetch_one(&db_connect)
-    .await
-    .expect("Unable to query the database");
-
-    Ok(system
-        .solarSystemName
-        .expect("Unable to return database record"))
+    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDESystemStruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    let system: i64 = system_id.parse().unwrap();
+    // let mut foundvar = false;
+    let mut name = String::new();
+    for x in typesde {
+        if x._key == system {
+            name = x.name.en.expect("couldn't locate itemid in types.jsonl");
+        }
+    }
+    Ok(name)
 }
 
-async fn get_timer_solar_id(system_id: String, client: Client) -> Result<i64, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+async fn get_timer_solar_id(system_id: String, client: Client) -> Result<i64, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let system = sqlx::query!(
+    //     "SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName IS ?",
+    //     system_id
+    // )
+    // .fetch_one(&db_connect)
+    // .await
+    // .expect("Unable to query the database");
+    //
+    // Ok(system.solarSystemID)
 
-    let system = sqlx::query!(
-        "SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName IS ?",
-        system_id
-    )
-    .fetch_one(&db_connect)
-    .await
-    .expect("Unable to query the database");
-
-    Ok(system.solarSystemID)
+    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDESystemStruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    // let system: i64 = system_id.parse().unwrap();
+    // let mut foundvar = false;
+    let mut sys_id = 0;
+    for x in typesde {
+        if x.name.en == Some(system_id.clone()) {
+            sys_id = x._key
+        }
+    }
+    Ok(sys_id)
 }
 
-async fn get_timer_solar_name(system_id: String, client: Client) -> Result<String, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+async fn get_timer_solar_name(system_id: String, client: Client) -> Result<String, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let system = sqlx::query!(
+    //     "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?",
+    //     system_id
+    // )
+    // .fetch_one(&db_connect)
+    // .await
+    // .expect("Unable to query the database");
+    //
+    // Ok(system
+    //     .solarSystemName
+    //     .expect("Unable to return database record"))
 
-    let system = sqlx::query!(
-        "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?",
-        system_id
-    )
-    .fetch_one(&db_connect)
-    .await
-    .expect("Unable to query the database");
-
-    Ok(system
-        .solarSystemName
-        .expect("Unable to return database record"))
+    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDESystemStruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    let system: i64 = system_id.parse().unwrap();
+    // let mut foundvar = false;
+    let mut name = String::new();
+    for x in typesde {
+        if x._key == system {
+            name = x.name.en.expect("couldn't locate itemid in types.jsonl");
+        }
+    }
+    Ok(name)
 }
-async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let system = sqlx::query!(
+    //     "SELECT constellationID FROM mapSolarSystems WHERE solarSystemID IS ?",
+    //     system_id
+    // )
+    // .fetch_one(&db_connect)
+    // .await
+    // .expect("Unable to query the database");
+    //
+    // Ok(system
+    //     .constellationID
+    //     .expect("Unable to return database record"))
 
-    let system = sqlx::query!(
-        "SELECT constellationID FROM mapSolarSystems WHERE solarSystemID IS ?",
-        system_id
-    )
-    .fetch_one(&db_connect)
-    .await
-    .expect("Unable to query the database");
-
-    Ok(system
-        .constellationID
-        .expect("Unable to return database record"))
+    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDESystemStruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    let systemid:i64 = system_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    let mut const_id: i64 = 0;
+    for x in typesde {
+        if x._key == systemid {
+            const_id = x.constellation_id;
+        }
+    }
+    Ok(const_id)
 }
 
-async fn get_timer_region_id(const_id: String, client: Client) -> Result<i64, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+async fn get_timer_region_id(const_id: String, client: Client) -> Result<i64, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let system = sqlx::query!(
+    //     "SELECT regionID FROM mapConstellations WHERE constellationID IS ?",
+    //     const_id
+    // )
+    // .fetch_one(&db_connect)
+    // .await
+    // .expect("Unable to query the database");
+    //
+    // Ok(system.regionID.expect("Unable to return database record"))
 
-    let system = sqlx::query!(
-        "SELECT regionID FROM mapConstellations WHERE constellationID IS ?",
-        const_id
-    )
-    .fetch_one(&db_connect)
-    .await
-    .expect("Unable to query the database");
-
-    Ok(system.regionID.expect("Unable to return database record"))
+    let fp = BufReader::new(File::open("./sde/mapConstellations.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDEConstStruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    let constid:i64 = const_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    let mut region_id: i64 = 0;
+    for x in typesde {
+        if x._key == constid {
+            region_id = x.region_id;
+        }
+    }
+    Ok(region_id)
 }
 
 async fn get_timer_region_name(
     region_id: String,
     client: Client,
-) -> Result<String, reqwest::Error> {
-    let db_connect = db_connect().await;
-    let pool = db_connect
-        .acquire()
-        .await
-        .expect("Unable to create new pool connection");
+) -> Result<String, MyError> {
+    // let db_connect = db_connect().await;
+    // let pool = db_connect
+    //     .acquire()
+    //     .await
+    //     .expect("Unable to create new pool connection");
+    //
+    // let system = sqlx::query!(
+    //     "SELECT regionName FROM mapRegions WHERE regionID IS ?",
+    //     region_id
+    // )
+    // .fetch_one(&db_connect)
+    // .await
+    // .expect("Unable to query the database");
+    //
+    // Ok(system.regionName.expect("Unable to return database record"))
 
-    let system = sqlx::query!(
-        "SELECT regionName FROM mapRegions WHERE regionID IS ?",
-        region_id
-    )
-    .fetch_one(&db_connect)
-    .await
-    .expect("Unable to query the database");
-
-    Ok(system.regionName.expect("Unable to return database record"))
+    let fp = BufReader::new(File::open("./sde/mapRegions.jsonl").await?);
+    let reader = AsyncJsonLinesReader::new(fp);
+    let typesde = reader
+        .read_all::<SDEConstStruct>()
+        .try_collect::<Vec<_>>()
+        .await?;
+    let regid:i64 = region_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    let mut reg_name = String::new();
+    for x in typesde {
+        if x._key == regid {
+            reg_name = x.name.en.expect("couldn't locate itemid in mapRegions.jsonl");
+        }
+    }
+    Ok(reg_name)
 }
 
-async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Error> {
+async fn killmail_time_calc(date_string: String) -> Result<String, MyError> {
     let dt: Vec<&str> = date_string.split("T").collect();
     let date = dt[0].replace("\"", "");
 
@@ -1317,7 +1476,7 @@ async fn killmail_time_calc(date_string: String) -> Result<String, reqwest::Erro
     Ok(delta)
 }
 
-async fn system_stats(sys_name: &str) -> Result<(), reqwest::Error> {
+async fn system_stats(sys_name: &str) -> Result<(), MyError> {
     let client = reqwest::Client::builder()
         .user_agent("A simple zkb stats/kills parser")
         .build()?;
@@ -1519,7 +1678,7 @@ async fn timer_time_calc(date_string: String) -> Result<String, reqwest::Error> 
     Ok(delta)
 }
 
-async fn timers() -> Result<(), reqwest::Error> {
+async fn timers() -> Result<(), MyError> {
     let client = reqwest::Client::new();
 
     let current_timers = get_campaigns().await?;
@@ -1615,148 +1774,30 @@ async fn incursions() -> Result<(), MyError> {
     Ok(())
 }
 
-async fn get_sde_components() -> Result<(), MyError> {
-    // async fn get_sde_components() {
+async fn get_sde_components() -> Result<(), Box<dyn std::error::Error>> {
 
-    // hold for sqldump conversions being enabled
-    // let mut ss_present: bool = true;
-    // let mut co_present: bool = true;
-    // let mut re_present: bool = true;
-    // let mut in_present: bool = true;
-    //
-    // ss_present = Path::new("mapSolarSystems.db").exists();
-    // if ss_present == true {
-    //     std::fs::remove_file("mapSolarSystems.db")?;
-    // }
-    // co_present = Path::new("mapConstellations.db").exists();
-    // if ss_present == true {
-    //     std::fs::remove_file("mapConstellations.db")?;
-    // }
-    // re_present = Path::new("mapRegions.db").exists();
-    // if ss_present == true {
-    //     std::fs::remove_file("mapRegions.db")?;
-    // }
-    // in_present = Path::new("invTypes.db").exists();
-    // if ss_present == true {
-    //     std::fs::remove_file("invTypes.db")?;
-    // }
-    // // std::fs::remove_file("mapSolarSystems.db")?;
-    // // std::fs::remove_file("mapConstellations.db")?;
-    // // std::fs::remove_file("mapRegions.db")?;
-    // // std::fs::remove_file("invTypes.db")?;
-    // let client = Client::new();
-    //
-    // let mut resp_solar = client.get("https://www.fuzzwork.co.uk/dump/latest/mapSolarSystems.sql.bz2")
-    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
-    //     .send()
-    //     .await?
-    //     .bytes_stream();
-    //
-    // let mut out_solar = std::fs::File::create("mapSolarSystems.sql.bz2")
-    //     .expect("failed to create file");
-    //
-    //
-    // while let Some(item) = resp_solar.next().await {
-    //     std::io::copy(&mut item?.as_ref(), &mut out_solar).expect("Unable to write data");
-    // }
-    //
-    // let mut resp_const = client.get("https://www.fuzzwork.co.uk/dump/latest/mapConstellations.sql.bz2")
-    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
-    //     .send()
-    //     .await?
-    //     .bytes_stream();
-    //
-    // let mut out_const = std::fs::File::create("mapConstellations.sql.bz2")
-    //     .expect("failed to create file");
-    //
-    // while let Some(item) = resp_const.next().await {
-    //     std::io::copy(&mut item?.as_ref(), &mut out_const).expect("Unable to write data");
-    // }
-    //
-    // let mut resp_region = client.get("https://www.fuzzwork.co.uk/dump/latest/mapRegions.sql.bz2")
-    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
-    //     .send()
-    //     .await?
-    //     .bytes_stream();
-    //
-    // let mut out_region = std::fs::File::create("mapRegions.sql.bz2").expect("failed to create file");
-    // while let Some(item) = resp_region.next().await {
-    //     std::io::copy(&mut item?.as_ref(), &mut out_region).expect("Unable to write data");
-    // }
-    //
-    // let mut resp_items = client.get("https://www.fuzzwork.co.uk/dump/latest/invTypes.sql.bz2")
-    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
-    //     .send()
-    //     .await?
-    //     .bytes_stream();
-    //
-    // let mut out_items = std::fs::File::create("invTypes.sql.bz2").expect("failed to create file");
-    //
-    // while let Some(item) = resp_items.next().await {
-    //     std::io::copy(&mut item?.as_ref(), &mut out_items).expect("Unable to write data");
-    // }
-    //
-    // let solar_path = r"./mapSolarSystems.sql.bz2";
-    // let const_path = r"./mapConstellations.sql.bz2";
-    // let region_path = r"./mapRegions.sql.bz2";
-    // let items_path = r"./invTypes.sql.bz2";
-    //
-    // let mut sol_compressed_file = std::fs::File::open("mapSolarSystems.sql.bz2");
-    // let mut sol_decompressed_output = std::fs::File::create("mapSolarSystems.sql");
-    // let mut sol_reader = DecoderReader::new(sol_compressed_file?);
-    // std::io::copy(&mut sol_reader, &mut sol_decompressed_output?).expect("Unable to write contents of file");
-    //
-    // let mut con_compressed_file = std::fs::File::open("mapConstellations.sql.bz2");
-    // let mut con_decompressed_output = std::fs::File::create("mapConstellations.sql");
-    // let mut con_reader = DecoderReader::new(con_compressed_file?);
-    // std::io::copy(&mut con_reader, &mut con_decompressed_output?).expect("Unable to write contents of file");
-    //
-    // let mut reg_compressed_file = std::fs::File::open("mapRegions.sql.bz2");
-    // let mut reg_decompressed_output = std::fs::File::create("mapRegions.sql");
-    // let mut reg_reader = DecoderReader::new(reg_compressed_file?);
-    // std::io::copy(&mut reg_reader, &mut reg_decompressed_output?).expect("Unable to write contents of file");
-    //
-    // let mut inv_compressed_file = std::fs::File::open("invTypes.sql.bz2");
-    // let mut inv_decompressed_output = std::fs::File::create("invTypes.sql");
-    // let mut inv_reader = DecoderReader::new(inv_compressed_file?);
-    // std::io::copy(&mut inv_reader, &mut inv_decompressed_output?).expect("Unable to write contents of file");
-    //
-    // let ss_conn = Connection::open("mapSolarSystems.db")?;
-    // let co_conn = Connection::open("mapConstellations.db")?;
-    // let re_conn = Connection::open("mapRegions.db")?;
-    // let in_conn = Connection::open("invTypes.db")?;
-    //
-    // let ss_sql = std::fs::read_to_string("mapSolarSystems.sql")?;
-    // let co_sql = std::fs::read_to_string("mapConstellations.sql")?;
-    // let re_sql = std::fs::read_to_string("mapRegions.sql")?;
-    // let in_sql = std::fs::read_to_string("invTypes.sql")?;
-    //
-    // ss_conn.execute(&ss_sql, [])?;
-    // co_conn.execute(&co_sql, [])?;
-    // re_conn.execute(&re_sql, [])?;
-    // in_conn.execute(&in_sql, [])?;
 
-    let mut sde_present: bool = true;
+    // let mut sde_present: bool = true;
 
-    println!("Checking for previous SDE and removing if found...");
+    // println!("Checking for previous SDE and removing if found...");
 
-    sde_present = Path::new("sqlite-latest.sqlite").exists();
-    if sde_present {
-        remove_file("sqlite-latest.sqlite").unwrap();
-    }
+    // sde_present = Path::new("sqlite-latest.sqlite").exists();
+    // if sde_present {
+    //     remove_file("sqlite-latest.sqlite").unwrap();
+    // }
 
     let client = Client::new();
 
     println!("Downloading latest SDE...");
 
     let mut resp_sde = client
-        .get("https://www.fuzzwork.co.uk/dump/sqlite-latest.sqlite.bz2")
+        .get("https://developers.eveonline.com/static-data/eve-online-static-data-latest-jsonl.zip")
         .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
         .send()
         .await?
         .bytes_stream();
 
-    let mut out_sde = tokio::fs::File::create("sqlite-latest.sqlite.bz2")
+    let mut out_sde = tokio::fs::File::create("eve-online-static-data-latest-jsonl.zip")
         .await
         .expect("failed to create file");
 
@@ -1768,19 +1809,18 @@ async fn get_sde_components() -> Result<(), MyError> {
 
     println!("Decompressing SDE...");
 
-    let sde_path = r"./sqlite-latest.sqlite.bz2";
-    let sde_compressed_file = std::fs::File::open("sqlite-latest.sqlite.bz2");
-    let sde_decompressed_output = std::fs::File::create("sqlite-latest.sqlite");
-    let mut sde_reader = DecoderReader::new(sde_compressed_file?);
-    std::io::copy(&mut sde_reader, &mut sde_decompressed_output.unwrap())
-        .expect("Unable to write contents of SDE");
+    let sde_path = r"./eve-online-static-data-latest-jsonl.zip";
+    let archive_path: PathBuf = PathBuf::from(r#"eve-online-static-data-latest-jsonl.zip"#);
+    let target_path: PathBuf = PathBuf::from(r#"./sde/"#);
+    zip_extract(&archive_path, &target_path)?;
 
-    println!("Cleaning up...");
+    // let sde_compressed_file = std::fs::File::open("sqlite-latest.sqlite.bz2");
+    // let sde_decompressed_output = std::fs::File::create("sqlite-latest.sqlite");
+    // let mut sde_reader = DecoderReader::new(sde_compressed_file?);
+    // std::io::copy(&mut sde_reader, &mut sde_decompressed_output.unwrap())
+    //     .expect("Unable to write contents of SDE");
 
-    sde_present = Path::new("sqlite-latest.sqlite.bz2").exists();
-    if sde_present {
-        remove_file("sqlite-latest.sqlite.bz2").unwrap();
-    }
+
 
     println!("Done!");
 
@@ -1923,16 +1963,76 @@ mod tests {
     // Check if JSONLines parsing works for inventory types (types.jsonl)
     #[tokio::test]
     async fn check_types_parsing() -> Result<(), Box<dyn std::error::Error>> {
-        let fp = BufReader::new(File::open("types.jsonl").await?);
+        let fp = BufReader::new(File::open("./sde/types.jsonl").await?);
         let reader = AsyncJsonLinesReader::new(fp);
         let typesde = reader
             .read_all::<SDETypestruct>()
             .try_collect::<Vec<_>>()
             .await?;
-        let testvar = 3125;
+        let testvar = 3125; // Hail, Eris!
         let mut foundvar = false;
         for x in typesde {
             if x._key == 3125 {
+                foundvar = true;
+            }
+        }
+        if !foundvar {
+            panic!("Something failed parsing the SDE JSONL");
+        }
+        Ok(())
+    }
+    #[tokio::test]
+    async fn check_mapsolarsystems_id() -> Result<(), Box<dyn std::error::Error>> {
+        let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+        let reader = AsyncJsonLinesReader::new(fp);
+        let typesde = reader
+            .read_all::<SDESystemStruct>()
+            .try_collect::<Vec<_>>()
+            .await?;
+        let testvar = 30000142; // Jita
+        let mut foundvar = false;
+        for x in typesde {
+            if x._key == 30000142 {
+                foundvar = true;
+            }
+        }
+        if !foundvar {
+            panic!("Something failed parsing the SDE JSONL");
+        }
+        Ok(())
+    }
+    #[tokio::test]
+    async fn check_mapconst_id() -> Result<(), Box<dyn std::error::Error>> {
+        let fp = BufReader::new(File::open("./sde/mapConstellations.jsonl").await?);
+        let reader = AsyncJsonLinesReader::new(fp);
+        let typesde = reader
+            .read_all::<SDEConstStruct>()
+            .try_collect::<Vec<_>>()
+            .await?;
+        let testvar = 20000665; // Pegasus constellation - home of extremely valuable gas clouds
+        let mut foundvar = false;
+        for x in typesde {
+            if x._key == 20000665 {
+                foundvar = true;
+            }
+        }
+        if !foundvar {
+            panic!("Something failed parsing the SDE JSONL");
+        }
+        Ok(())
+    }
+    #[tokio::test]
+    async fn check_mapregions_id() -> Result<(), Box<dyn std::error::Error>> {
+        let fp = BufReader::new(File::open("./sde/mapRegions.jsonl").await?);
+        let reader = AsyncJsonLinesReader::new(fp);
+        let typesde = reader
+            .read_all::<SDERegionStruct>()
+            .try_collect::<Vec<_>>()
+            .await?;
+        let testvar = 10000002; // The Forge region
+        let mut foundvar = false;
+        for x in typesde {
+            if x._key == 10000002 {
                 foundvar = true;
             }
         }

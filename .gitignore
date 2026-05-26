@@ -2,3 +2,7 @@
 .idea
 /.sqlx
 sqlite-latest.sqlite
+/sde
+.jsonl
+.zip
+
