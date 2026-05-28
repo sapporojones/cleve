@@ -26,6 +26,7 @@ use tokio::fs::File;
 use std::path::PathBuf;
 use clap::builder::TypedValueParser;
 use zip_extensions::*;
+use polars::prelude::*;
 
 
 #[derive(Error, Diagnostic, Debug)]
@@ -1518,6 +1519,20 @@ async fn system_stats(sys_name: &str) -> Result<(), MyError> {
     // let const_id = get_timer_const_id(system_id.clone(), client.clone()).await?;
     let region_id = get_timer_region_id(system_id.clone().to_string(), client.clone()).await?;
     let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
+
+    let df_solar = LazyJsonLineReader::new(PlRefPath::new("./sde/mapSolarSystems.jsonl"))
+        .finish()
+        .unwrap()
+        .collect()
+        .unwrap();
+
+    let df_region = LazyJsonLineReader::new(PlRefPath::new("./sde/mapRegions.jsonl"))
+        .finish()
+        .unwrap()
+        .collect()
+        .unwrap();
+
+    
 
     let ship = String::new();
     let mut char = String::new();

@@ -3,6 +3,6 @@
 /.sqlx
 sqlite-latest.sqlite
 /sde
-.jsonl
-.zip
-/sde/.jsonl
+*.jsonl
+*.zip
+/sde/*.jsonl

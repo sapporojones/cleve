@@ -9,19 +9,16 @@ serde_json = "1.0.118"
 serde = { version = "1.0.203", features = ["derive"] }
 clap = { version = "4.5.9", features = ["derive"] }
 chrono = "0.4.38"
-serde_with = "3.9.0"
-rusqlite = { version = "0.32.0", features = ["bundled"] }
-tempfile = "3.14.0"
 reqwest = { version = "0.12.11", features = ["json", "stream", "blocking"] }
 futures-util = "0.3.31"
 zip = "2.2.2"
 zip-extensions = "0.8.1"
-zip-extract = { version = "0.2.1", features = ["bzip2"] }
 bzip2 = "0.5.0"
 bzip2-rs = "0.1.2"
 thiserror = "2.0.9"
 miette = { version = "7.4.0", features = ["fancy"] }
 sqlx = { version = "0.8.2", features = ["runtime-tokio-native-tls", "sqlite"] }
-log = "0.4.21"
 serde-jsonlines = { version = "0.7.0", features = ["async"] }
+polars = { version = "0.53.0", features = ["json", "lazy"] }
+connectorx = "0.4.5"
 
