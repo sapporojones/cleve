@@ -103,8 +103,8 @@ struct SDESystemStruct {
     pub name: Langstruct,
     pub position: Position,
     pub radius: f64,
-    #[serde(rename = "regionID")]
-    pub region_id: i64,
+    #[serde(rename = "regionID", skip_serializing_if = "Option::is_none")]
+    pub region_id: Option<i64>,
     #[serde(rename = "securityStatus")]
     pub security_status: f64,
 }
@@ -907,9 +907,9 @@ async fn shlookup(char_name: &str) -> Result<(), MyError> {
         let killed_with = &ships_kills_vec[idx];
         let kill_system =
             get_timer_solar_name(kill.solar_system_id.to_string(), client.clone()).await?;
-        let kill_const =
-            get_timer_const_id(kill.solar_system_id.to_string(), client.clone()).await?;
-        let kill_region = get_timer_region_id(kill_const.to_string(), client.clone()).await?;
+        // let kill_const =
+        //     get_timer_const_id(kill.solar_system_id.to_string(), client.clone()).await?;
+        let kill_region = get_timer_region_id(kill.solar_system_id.to_string(), client.clone()).await?;
         let kill_region_name =
             get_timer_region_name(kill_region.to_string(), client.clone()).await?;
         println!(
@@ -934,9 +934,9 @@ async fn shlookup(char_name: &str) -> Result<(), MyError> {
         let lost_ship = &ships_loss_vec[idx];
         let loss_system =
             get_timer_solar_name(loss.solar_system_id.to_string(), client.clone()).await?;
-        let loss_const =
-            get_timer_const_id(loss.solar_system_id.to_string(), client.clone()).await?;
-        let loss_region = get_timer_region_id(loss_const.to_string(), client.clone()).await?;
+        // let loss_const =
+        //     get_timer_const_id(loss.solar_system_id.to_string(), client.clone()).await?;
+        let loss_region = get_timer_region_id(loss.solar_system_id.to_string(), client.clone()).await?;
         let loss_region_name =
             get_timer_region_name(loss_region.to_string(), client.clone()).await?;
         println!(
@@ -1386,7 +1386,7 @@ async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, My
     Ok(const_id)
 }
 
-async fn get_timer_region_id(const_id: String, client: Client) -> Result<i64, MyError> {
+async fn get_timer_region_id(system_id: String, client: Client) -> Result<i64, MyError> {
     // let db_connect = db_connect().await;
     // let pool = db_connect
     //     .acquire()
@@ -1403,17 +1403,17 @@ async fn get_timer_region_id(const_id: String, client: Client) -> Result<i64, My
     //
     // Ok(system.regionID.expect("Unable to return database record"))
 
-    let fp = BufReader::new(File::open("./sde/mapConstellations.jsonl").await?);
+    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
     let reader = AsyncJsonLinesReader::new(fp);
     let typesde = reader
-        .read_all::<SDEConstStruct>()
+        .read_all::<SDESystemStruct>()
         .try_collect::<Vec<_>>()
         .await?;
-    let constid:i64 = const_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    let systemid:i64 = system_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
     let mut region_id: i64 = 0;
     for x in typesde {
-        if x._key == constid {
-            region_id = x.region_id;
+        if x._key == systemid {
+            region_id = x.region_id.expect("Unable to locate");
         }
     }
     Ok(region_id)
@@ -1442,7 +1442,7 @@ async fn get_timer_region_name(
     let fp = BufReader::new(File::open("./sde/mapRegions.jsonl").await?);
     let reader = AsyncJsonLinesReader::new(fp);
     let typesde = reader
-        .read_all::<SDEConstStruct>()
+        .read_all::<SDERegionStruct>()
         .try_collect::<Vec<_>>()
         .await?;
     let regid:i64 = region_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
@@ -1515,8 +1515,8 @@ async fn system_stats(sys_name: &str) -> Result<(), MyError> {
         }
     }
 
-    let const_id = get_timer_const_id(system_id, client.clone()).await?;
-    let region_id = get_timer_region_id(const_id.to_string(), client.clone()).await?;
+    // let const_id = get_timer_const_id(system_id.clone(), client.clone()).await?;
+    let region_id = get_timer_region_id(system_id.clone().to_string(), client.clone()).await?;
     let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
 
     let ship = String::new();
@@ -1699,7 +1699,7 @@ async fn timers() -> Result<(), MyError> {
 
         // let region_name = region_info.name;
         let region_id =
-            get_timer_region_id(timer.constellation_id.to_string(), client.clone()).await?;
+            get_timer_region_id(timer.solar_system_id.to_string(), client.clone()).await?;
         let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
         let defender_value = alliance_info(timer.defender_id.to_string(), client.clone()).await?;
         let defender = defender_value.name;
@@ -1747,7 +1747,7 @@ async fn incursions() -> Result<(), MyError> {
     for incursion in incursions.iter() {
         // let const_info = get_const(incursion.constellation_id.to_string().as_str()).await?;
         let region_id =
-            get_timer_region_id(incursion.constellation_id.to_string(), client.clone()).await?;
+            get_timer_region_id(incursion.staging_solar_system_id.to_string(), client.clone()).await?;
         let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
         let staging_system = get_timer_solar_name(
             incursion.staging_solar_system_id.to_string(),
