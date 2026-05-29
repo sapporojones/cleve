@@ -9,7 +9,7 @@ use bzip2_rs::DecoderReader;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use futures_util::{StreamExt, TryStreamExt};
-use miette::{Diagnostic, Result};
+use miette::{Diagnostic};
 use reqwest::{Client, header::USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -26,8 +26,6 @@ use tokio::fs::File;
 use std::path::PathBuf;
 use clap::builder::TypedValueParser;
 use zip_extensions::*;
-use polars::prelude::*;
-
 
 #[derive(Error, Diagnostic, Debug)]
 enum MyError {
@@ -39,19 +37,19 @@ enum MyError {
     FE(#[from] std::fmt::Error),
     #[error("Reqwest Error")]
     RE(#[from] reqwest::Error),
-    #[error("SQLx Error")]
-    SqE(#[from] sqlx::Error),
+    // #[error("SQLx Error")]
+    // SqE(#[from] sqlx::Error),
     #[error("Other Error")]
     Custom(String),
 }
 
-// async fn db_connect() -> Pool<Sqlite> {
-//     let db_url: &str = "sqlite://sqlite-latest.sqlite";
-//     let pool = SqlitePool::connect(db_url)
-//         .await
-//         .expect("Unable to connect to database");
-//     pool
-// }
+async fn db_connect() -> Pool<Sqlite> {
+    let options = "./eve-sde-latest-jsonl.sqlite";
+    let pool = SqlitePool::connect(options)
+        .await
+        .expect("Unable to connect to database");
+    pool
+}
 
 #[derive(Serialize, Deserialize)]
 struct Langstruct {
@@ -194,8 +192,8 @@ pub struct SystemZkbStruct {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Zkb {
-    #[serde(rename = "locationID")]
-    pub location_id: i64,
+    #[serde(rename = "locationID", skip_serializing_if = "Option::is_none")]
+    pub location_id: Option<i64>,
     pub hash: String,
     pub fitted_value: f64,
     pub dropped_value: f64,
@@ -1127,35 +1125,35 @@ fn date_parse(date_string: &String) -> String {
 }
 
 async fn item_lookup(item_id: String, client: Client) -> Result<String, MyError> {
-    // let db_connect = db_connect().await;
-    // let pool = db_connect
-    //     .acquire()
-    //     .await
-    //     .expect("Unable to create new pool connection");
-    //
-    // let item = sqlx::query!("SELECT  typeName FROM invTypes WHERE typeID IS ?", item_id)
-    //     .fetch_one(&db_connect)
-    //     .await
-    //     .expect("Unable to query the database");
-    //
-    // Ok(item.typeName.expect("Unable to return database record"))
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
+
+    let item = sqlx::query!("SELECT  name_en FROM types WHERE _key IS ?", item_id)
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+    Ok(item.name_en.expect("Unable to return database record"))
 
     // no more dbs so converting to jsonl
-    let fp = BufReader::new(File::open("./sde/types.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDETypestruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let itemid: i64 = item_id.parse().unwrap();
-    // let mut foundvar = false;
-    let mut name = String::new();
-    for x in typesde {
-        if x._key == itemid {
-            name = x.name.en.expect("couldn't locate itemid in types.jsonl");
-        }
-    }
-    Ok(name)
+    // let fp = BufReader::new(File::open("./sde/types.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDETypestruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // let itemid: i64 = item_id.parse().unwrap();
+    // // let mut foundvar = false;
+    // let mut name = String::new();
+    // for x in typesde {
+    //     if x._key == itemid {
+    //         name = x.name.en.expect("couldn't locate itemid in types.jsonl");
+    //     }
+    // }
+    // Ok(name)
 }
 async fn legacy_item_lookup(item_id: String, client: Client) -> Result<Value, reqwest::Error> {
     let ps = format!("[{}]", item_id);
@@ -1255,7 +1253,7 @@ async fn get_solar_name(system_id: String, client: Client) -> Result<String, MyE
     //     .expect("Unable to create new pool connection");
     //
     // let system = sqlx::query!(
-    //     "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?",
+    //     "SELECT name_en FROM mapSolarSystems WHERE _key IS ?",
     //     system_id
     // )
     // .fetch_one(&db_connect)
@@ -1266,194 +1264,194 @@ async fn get_solar_name(system_id: String, client: Client) -> Result<String, MyE
     //     .solarSystemName
     //     .expect("Unable to return database record"))
 
-    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDESystemStruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let system: i64 = system_id.parse().unwrap();
-    // let mut foundvar = false;
-    let mut name = String::new();
-    for x in typesde {
-        if x._key == system {
-            name = x.name.en.expect("couldn't locate itemid in types.jsonl");
-        }
-    }
-    Ok(name)
+    // let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDESystemStruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // let system: i64 = system_id.parse().unwrap();
+    // // let mut foundvar = false;
+    // let mut name = String::new();
+    // for x in typesde {
+    //     if x._key == system {
+    //         name = x.name.en.expect("couldn't locate itemid in types.jsonl");
+    //     }
+    // }
+    Ok(system_id)
 }
 
 async fn get_timer_solar_id(system_id: String, client: Client) -> Result<i64, MyError> {
-    // let db_connect = db_connect().await;
-    // let pool = db_connect
-    //     .acquire()
-    //     .await
-    //     .expect("Unable to create new pool connection");
-    //
-    // let system = sqlx::query!(
-    //     "SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName IS ?",
-    //     system_id
-    // )
-    // .fetch_one(&db_connect)
-    // .await
-    // .expect("Unable to query the database");
-    //
-    // Ok(system.solarSystemID)
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
 
-    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDESystemStruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    // let system: i64 = system_id.parse().unwrap();
-    // let mut foundvar = false;
-    let mut sys_id = 0;
-    for x in typesde {
-        if x.name.en == Some(system_id.clone()) {
-            sys_id = x._key
-        }
-    }
-    Ok(sys_id)
+    let system = sqlx::query!(
+        "SELECT _key FROM mapSolarSystems WHERE name_en IS ?",
+        system_id
+    )
+    .fetch_one(&db_connect)
+    .await
+    .expect("Unable to query the database");
+
+    Ok(system._key.expect("couldn't retrieve value"))
+
+    // let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDESystemStruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // // let system: i64 = system_id.parse().unwrap();
+    // // let mut foundvar = false;
+    // let mut sys_id = 0;
+    // for x in typesde {
+    //     if x.name.en == Some(system_id.clone()) {
+    //         sys_id = x._key
+    //     }
+    // }
+    // Ok(sys_id)
 }
 
 async fn get_timer_solar_name(system_id: String, client: Client) -> Result<String, MyError> {
-    // let db_connect = db_connect().await;
-    // let pool = db_connect
-    //     .acquire()
-    //     .await
-    //     .expect("Unable to create new pool connection");
-    //
-    // let system = sqlx::query!(
-    //     "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID IS ?",
-    //     system_id
-    // )
-    // .fetch_one(&db_connect)
-    // .await
-    // .expect("Unable to query the database");
-    //
-    // Ok(system
-    //     .solarSystemName
-    //     .expect("Unable to return database record"))
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
 
-    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDESystemStruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let system: i64 = system_id.parse().unwrap();
-    // let mut foundvar = false;
-    let mut name = String::new();
-    for x in typesde {
-        if x._key == system {
-            name = x.name.en.expect("couldn't locate itemid in types.jsonl");
-        }
-    }
-    Ok(name)
+    let system = sqlx::query!(
+        "SELECT name_en FROM mapSolarSystems WHERE _key IS ?",
+        system_id
+    )
+    .fetch_one(&db_connect)
+    .await
+    .expect("Unable to query the database");
+
+    Ok(system
+        .name_en
+        .expect("Unable to return database record"))
+
+    // let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDESystemStruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // let system: i64 = system_id.parse().unwrap();
+    // // let mut foundvar = false;
+    // let mut name = String::new();
+    // for x in typesde {
+    //     if x._key == system {
+    //         name = x.name.en.expect("couldn't locate itemid in types.jsonl");
+    //     }
+    // }
+    // Ok(name)
 }
 async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, MyError> {
-    // let db_connect = db_connect().await;
-    // let pool = db_connect
-    //     .acquire()
-    //     .await
-    //     .expect("Unable to create new pool connection");
-    //
-    // let system = sqlx::query!(
-    //     "SELECT constellationID FROM mapSolarSystems WHERE solarSystemID IS ?",
-    //     system_id
-    // )
-    // .fetch_one(&db_connect)
-    // .await
-    // .expect("Unable to query the database");
-    //
-    // Ok(system
-    //     .constellationID
-    //     .expect("Unable to return database record"))
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
 
-    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDESystemStruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let systemid:i64 = system_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
-    let mut const_id: i64 = 0;
-    for x in typesde {
-        if x._key == systemid {
-            const_id = x.constellation_id;
-        }
-    }
-    Ok(const_id)
+    let system = sqlx::query!(
+        "SELECT constellationID FROM mapSolarSystems WHERE _key IS ?",
+        system_id
+    )
+    .fetch_one(&db_connect)
+    .await
+    .expect("Unable to query the database");
+
+    Ok(system
+        .constellationID
+        .expect("Unable to return database record"))
+
+    // let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDESystemStruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // let systemid:i64 = system_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    // let mut const_id: i64 = 0;
+    // for x in typesde {
+    //     if x._key == systemid {
+    //         const_id = x.constellation_id;
+    //     }
+    // }
+    // Ok(const_id)
 }
 
 async fn get_timer_region_id(system_id: String, client: Client) -> Result<i64, MyError> {
-    // let db_connect = db_connect().await;
-    // let pool = db_connect
-    //     .acquire()
-    //     .await
-    //     .expect("Unable to create new pool connection");
-    //
-    // let system = sqlx::query!(
-    //     "SELECT regionID FROM mapConstellations WHERE constellationID IS ?",
-    //     const_id
-    // )
-    // .fetch_one(&db_connect)
-    // .await
-    // .expect("Unable to query the database");
-    //
-    // Ok(system.regionID.expect("Unable to return database record"))
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
 
-    let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDESystemStruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let systemid:i64 = system_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
-    let mut region_id: i64 = 0;
-    for x in typesde {
-        if x._key == systemid {
-            region_id = x.region_id.expect("Unable to locate");
-        }
-    }
-    Ok(region_id)
+    let system = sqlx::query!(
+        "SELECT regionID FROM mapSolarSystems WHERE _key IS ?",
+        system_id
+    )
+    .fetch_one(&db_connect)
+    .await
+    .expect("Unable to query the database");
+
+    Ok(system.regionID.expect("Unable to return database record"))
+
+    // let fp = BufReader::new(File::open("./sde/mapSolarSystems.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDESystemStruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // let systemid:i64 = system_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    // let mut region_id: i64 = 0;
+    // for x in typesde {
+    //     if x._key == systemid {
+    //         region_id = x.region_id.expect("Unable to locate");
+    //     }
+    // }
+    // Ok(region_id)
 }
 
 async fn get_timer_region_name(
     region_id: String,
     client: Client,
 ) -> Result<String, MyError> {
-    // let db_connect = db_connect().await;
-    // let pool = db_connect
-    //     .acquire()
-    //     .await
-    //     .expect("Unable to create new pool connection");
-    //
-    // let system = sqlx::query!(
-    //     "SELECT regionName FROM mapRegions WHERE regionID IS ?",
-    //     region_id
-    // )
-    // .fetch_one(&db_connect)
-    // .await
-    // .expect("Unable to query the database");
-    //
-    // Ok(system.regionName.expect("Unable to return database record"))
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
 
-    let fp = BufReader::new(File::open("./sde/mapRegions.jsonl").await?);
-    let reader = AsyncJsonLinesReader::new(fp);
-    let typesde = reader
-        .read_all::<SDERegionStruct>()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let regid:i64 = region_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
-    let mut reg_name = String::new();
-    for x in typesde {
-        if x._key == regid {
-            reg_name = x.name.en.expect("couldn't locate itemid in mapRegions.jsonl");
-        }
-    }
-    Ok(reg_name)
+    let system = sqlx::query!(
+        "SELECT name_en FROM mapRegions WHERE _key IS ?",
+        region_id
+    )
+    .fetch_one(&db_connect)
+    .await
+    .expect("Unable to query the database");
+
+    Ok(system.name_en.expect("Unable to return database record"))
+
+    // let fp = BufReader::new(File::open("./sde/mapRegions.jsonl").await?);
+    // let reader = AsyncJsonLinesReader::new(fp);
+    // let typesde = reader
+    //     .read_all::<SDERegionStruct>()
+    //     .try_collect::<Vec<_>>()
+    //     .await?;
+    // let regid:i64 = region_id.parse().unwrap(); // Pegasus constellation - home of extremely valuable gas clouds
+    // let mut reg_name = String::new();
+    // for x in typesde {
+    //     if x._key == regid {
+    //         reg_name = x.name.en.expect("couldn't locate itemid in mapRegions.jsonl");
+    //     }
+    // }
+    // Ok(reg_name)
 }
 
 async fn killmail_time_calc(date_string: String) -> Result<String, MyError> {
@@ -1519,20 +1517,6 @@ async fn system_stats(sys_name: &str) -> Result<(), MyError> {
     // let const_id = get_timer_const_id(system_id.clone(), client.clone()).await?;
     let region_id = get_timer_region_id(system_id.clone().to_string(), client.clone()).await?;
     let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
-
-    let df_solar = LazyJsonLineReader::new(PlRefPath::new("./sde/mapSolarSystems.jsonl"))
-        .finish()
-        .unwrap()
-        .collect()
-        .unwrap();
-
-    let df_region = LazyJsonLineReader::new(PlRefPath::new("./sde/mapRegions.jsonl"))
-        .finish()
-        .unwrap()
-        .collect()
-        .unwrap();
-
-    
 
     let ship = String::new();
     let mut char = String::new();
@@ -1702,20 +1686,20 @@ async fn timers() -> Result<(), MyError> {
     let mut output: Vec<String> = Vec::new();
     print!("Processing {total_timers} timers... ");
     io::stdout().flush().unwrap();
+
+
     for timer in current_timers.iter() {
-        // let system_info: SystemInfo = get_system(timer.solar_system_id.to_string().as_str()).await?;
-        // let const_info: ConstInfo = get_const(system_info.constellation_id.to_string().as_str()).await?;
-        // let region_info: RegionInfo = get_region(const_info.region_id.to_string().as_str()).await?;
+
 
         let system_name =
             get_timer_solar_name(timer.solar_system_id.to_string(), client.clone()).await?;
 
-        // let system_name = system_info.name;
 
-        // let region_name = region_info.name;
         let region_id =
             get_timer_region_id(timer.solar_system_id.to_string(), client.clone()).await?;
         let region_name = get_timer_region_name(region_id.to_string(), client.clone()).await?;
+
+
         let defender_value = alliance_info(timer.defender_id.to_string(), client.clone()).await?;
         let defender = defender_value.name;
 

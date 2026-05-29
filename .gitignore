@@ -1,8 +1,9 @@
 /target
 .idea
-/.sqlx
+/*.sqlx
 sqlite-latest.sqlite
 /sde
 *.jsonl
 *.zip
 /sde/*.jsonl
+*.sqlite
