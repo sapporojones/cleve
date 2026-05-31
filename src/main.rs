@@ -53,7 +53,7 @@ async fn db_connect() -> Pool<Sqlite> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Skyhooks {
-    skyhooks: Vec<Hooks>,
+    pub skyhooks: Vec<Hooks>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -267,6 +267,17 @@ pub struct Position {
 
 pub type SysJumps = Vec<Jumps>;
 
+pub type CorpHistory = Vec<CorpHist>;
+
+#[derive(Serialize, Deserialize)]
+pub struct CorpHist {
+    corporation_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_deleted: Option<bool>,
+    record_id: i64,
+    start_date: String,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Jumps {
     pub ship_jumps: i64,
@@ -421,6 +432,8 @@ pub struct CampaignStruct {
     pub structure_id: i64,
 }
 
+
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
@@ -473,7 +486,8 @@ pub struct Victim {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub faction_id: Option<i64>,
     pub items: Vec<Option<serde_json::Value>>,
-    pub position: KillPosition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<KillPosition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ship_type_id: Option<i64>,
 }
@@ -985,6 +999,20 @@ async fn shlookup(char_name: &str) -> Result<(), MyError> {
         idx += 1;
     }
 
+    // Corp history gather/parse/print
+    // let mut output: Vec<String> = Vec::new();
+    // let corp_history: CorpHistory = get_corp_history(char_id.to_string(), client.clone()).await?;
+    // for corp in corp_history {
+    //     let corp_name = corp_info(corp.corporation_id.to_string().as_str(), client.clone()).await?;
+    //     output.push(format!("{:<32} {:<20}", corp_name.name, corp.start_date))
+    // }
+    // println!("\nCorp history:\n{:<32}{:<20}", "Corp", "Start Date:");
+    // for line in output.iter() {
+    //     println!("{}", line);
+    // }
+
+
+
     println!("\n \n");
     Ok(())
 }
@@ -1012,6 +1040,13 @@ async fn public_info(char_id: &str, client: Client) -> Result<CharInfo, reqwest:
     let p: CharInfo = publicinfo_response.json().await?;
 
     Ok(p)
+}
+
+async fn get_corp_history(char_id: String, client: Client) -> Result<CorpHistory, reqwest::Error> {
+    let url = format!("https://esi.evetech.net/characters/{}/corporationhistory", char_id);
+    let hist_response = client.get(url).send().await?;
+    let corp_history: CorpHistory = hist_response.json().await?;
+    Ok(corp_history)
 }
 
 async fn corp_info(corporation_id: &str, client: Client) -> Result<CorpInfo, reqwest::Error> {
@@ -1583,10 +1618,9 @@ async fn get_hooks_by_region(region_name: String) -> Result<(), MyError> {
 
     }
     let local_timers = output.len();
-    println!("\n{} timers found for region id {}", local_timers, region_name);
+    println!("\n{} timer(s) found for the region of {}", local_timers, region_name);
     println!(
-        "\nUpcoming Skyhook Vuln Timers in {}:\n{:<9} {:7} {:<25} {:<25}",
-        region_name,
+        "\n{:<9} {:7} {:<25} {:<25}",
         "System:",
         "Planet:",
         "Start Time:",
@@ -2000,7 +2034,7 @@ async fn get_sde_components() -> Result<(), Box<dyn std::error::Error>> {
 
     let sde_path = r"./eve-online-static-data-latest-jsonl.zip";
     let archive_path: PathBuf = PathBuf::from(r#"eve-online-static-data-latest-jsonl.zip"#);
-    let target_path: PathBuf = PathBuf::from(r#"./sde/"#);
+    let target_path: PathBuf = PathBuf::from(r#"."#);
     zip_extract(&archive_path, &target_path)?;
 
     // let sde_compressed_file = std::fs::File::open("sqlite-latest.sqlite.bz2");
