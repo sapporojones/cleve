@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT regionID FROM mapSolarSystems WHERE _key IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "regionID",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "mapSolarSystems",
+            "name": "regionID"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "82601949b583dc3650d8ee4977cf2ccb5519c2b72b9b66642b4478845a01bc55"
+}

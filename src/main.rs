@@ -51,6 +51,25 @@ async fn db_connect() -> Pool<Sqlite> {
     pool
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct Skyhooks {
+    skyhooks: Vec<Hooks>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Hooks {
+    pub planet_id: i64,
+    pub solar_system_id: i64,
+    pub theft_vulnerability: TheftVulnerability,
+
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct TheftVulnerability {
+    pub end: String,
+    pub start: String,
+}
+
 #[derive(Serialize, Deserialize)]
 struct Langstruct {
     pub de: Option<String>,
@@ -134,6 +153,8 @@ struct SDERegionStruct {
     #[serde(rename = "wormholeClassID", skip_serializing_if = "Option::is_none")]
     pub wormhole_class_id: Option<i64>,
 }
+
+
 
 pub type Incursions = Vec<IncursionStruct>;
 
@@ -485,6 +506,10 @@ enum Commands {
     Status,
     /// Returns information about current sov timers (SOON TO BE DEPRECATED)
     Timers,
+    /// Returns information about upcoming Skyhook vulnerabilities around the game using FC's default sort
+    Skyhooks,
+    /// Shows only upcoming Skyhook vulnerabilities matching a given region name
+    Hooks { region_name: String },
     /// Update SDE components
     Update,
 }
@@ -553,6 +578,20 @@ async fn main() -> Result<(), MyError> {
         }
         Some(Commands::Timers) => {
             timers().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
+        Some(Commands::Skyhooks) => {
+            get_upcoming_skyhooks().await?;
+
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            println!("Completed in {} seconds.", duration.as_secs_f64());
+        }
+        Some(Commands::Hooks { region_name }) => {
+            get_hooks_by_region(region_name.to_string()).await?;
 
             let end = SystemTime::now();
             let duration = end.duration_since(start).unwrap();
@@ -1385,6 +1424,24 @@ async fn get_timer_const_id(system_id: String, client: Client) -> Result<i64, My
     // Ok(const_id)
 }
 
+async fn get_planet_number(planet_id: String, client: Client) -> Result<i64, MyError> {
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
+
+    let system = sqlx::query!(
+        "SELECT celestialIndex FROM mapPlanets WHERE _key IS ?",
+        planet_id
+    )
+        .fetch_one(&db_connect)
+        .await
+        .expect("Unable to query the database");
+
+    Ok(system.celestialIndex.expect("Unable to return database record"))
+}
+
 async fn get_timer_region_id(system_id: String, client: Client) -> Result<i64, MyError> {
     let db_connect = db_connect().await;
     let pool = db_connect
@@ -1416,6 +1473,132 @@ async fn get_timer_region_id(system_id: String, client: Client) -> Result<i64, M
     //     }
     // }
     // Ok(region_id)
+}
+
+async fn get_upcoming_skyhooks() -> Result<(), MyError> {
+    let client = reqwest::Client::builder()
+        .user_agent("A simple zkb stats/kills parser")
+        .build()?;
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
+
+    // let url = format!("https://zkillboard.com/api/stats/characterID/{}/", char_id);
+    let url = "https://esi.evetech.net/skyhooks/raidable";
+
+    let response = client.get(url)
+        .header("X-Compatibility-Date", "2026-05-19")
+        .send()
+        .await?;
+
+
+    let skyhooks: Skyhooks = response.json().await?;
+
+    let mut output: Vec<String> = Vec::new();
+    let total_timers = skyhooks.skyhooks.len();
+    print!("Processing {total_timers} skyhook timers... ");
+    io::stdout().flush().unwrap();
+
+    let mut hook_reg = String::from("");
+    let mut hook_reg_id = String::from("");
+    let mut hook_sys = String::from("");
+    let mut hook_planets = String::from("");
+    let mut hook_start = String::from("");
+    let mut hook_end = String::from("");
+
+    for hook in skyhooks.skyhooks.iter() {
+        let hook_sys = get_timer_solar_name(hook.solar_system_id.to_string(), client.clone()).await?;
+        let hook_reg_id = get_timer_region_id(hook.solar_system_id.to_string(), client.clone()).await?;
+        let hook_reg = get_timer_region_name(hook_reg_id.to_string(), client.clone()).await?;
+        let hook_planets = get_planet_number(hook.planet_id.to_string(), client.clone()).await?;
+        let hook_start = hook.theft_vulnerability.start.clone();
+        let hook_end = hook.theft_vulnerability.end.clone();
+        output.push(format!("{:<35} {:<9} {:<7} {:<25} {:<25}", hook_reg, hook_sys, hook_planets, hook_start, hook_end));
+        print!("*");
+        io::stdout().flush().unwrap();
+    }
+
+    println!(
+        "\nUpcoming Skyhook Vuln Timers:\n{:<35} {:<9} {:7} {:<25} {:<25}",
+        "Region:",
+        "System:",
+        "Planet:",
+        "Start Time:",
+        "End Time:"
+    );
+    for line in output.iter() {
+        println!("{}", line);
+    }
+    Ok(())
+}
+
+async fn get_hooks_by_region(region_name: String) -> Result<(), MyError> {
+    let client = reqwest::Client::builder()
+        .user_agent("A simple zkb stats/kills parser")
+        .build()?;
+    let db_connect = db_connect().await;
+    let pool = db_connect
+        .acquire()
+        .await
+        .expect("Unable to create new pool connection");
+
+    // let url = format!("https://zkillboard.com/api/stats/characterID/{}/", char_id);
+    let url = "https://esi.evetech.net/skyhooks/raidable";
+
+    let response = client.get(url)
+        .header("X-Compatibility-Date", "2026-05-19")
+        .send()
+        .await?;
+
+
+
+    let skyhooks: Skyhooks = response.json().await?;
+
+    let mut output: Vec<String> = Vec::new();
+    let total_timers = skyhooks.skyhooks.len();
+    print!("Processing {total_timers} skyhook timers... ");
+    io::stdout().flush().unwrap();
+
+    let mut hook_reg = String::from("");
+    let mut hook_reg_id = String::from("");
+    let mut hook_sys = String::from("");
+    let mut hook_planets = String::from("");
+    let mut hook_start = String::from("");
+    let mut hook_end = String::from("");
+
+    for hook in skyhooks.skyhooks.iter() {
+        let hook_sys = get_timer_solar_name(hook.solar_system_id.to_string(), client.clone()).await?;
+        let hook_reg_id = get_timer_region_id(hook.solar_system_id.to_string(), client.clone()).await?;
+        let hook_reg = get_timer_region_name(hook_reg_id.to_string(), client.clone()).await?;
+        let hook_planets = get_planet_number(hook.planet_id.to_string(), client.clone()).await?;
+        let hook_start = hook.theft_vulnerability.start.clone();
+        let hook_end = hook.theft_vulnerability.end.clone();
+        if hook_reg.to_uppercase() == region_name.to_uppercase() {
+            output.push(format!("{:<9} {:<7} {:<25} {:<25}", hook_sys, hook_planets, hook_start, hook_end));
+        }
+        print!("*");
+        io::stdout().flush().unwrap();
+
+    }
+    let local_timers = output.len();
+    println!("\n{} timers found for region id {}", local_timers, region_name);
+    println!(
+        "\nUpcoming Skyhook Vuln Timers in {}:\n{:<9} {:7} {:<25} {:<25}",
+        region_name,
+        "System:",
+        "Planet:",
+        "Start Time:",
+        "End Time:"
+    );
+    for line in output.iter() {
+        println!("{}", line);
+    }
+
+
+
+    Ok(())
 }
 
 async fn get_timer_region_name(
@@ -1789,8 +1972,15 @@ async fn get_sde_components() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Downloading latest SDE...");
 
+    // let mut resp_sde = client
+    //     .get("https://developers.eveonline.com/static-data/eve-online-static-data-latest-jsonl.zip")
+    //     .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
+    //     .send()
+    //     .await?
+    //     .bytes_stream();
+
     let mut resp_sde = client
-        .get("https://developers.eveonline.com/static-data/eve-online-static-data-latest-jsonl.zip")
+        .get("https://chat.sunkenrlyeh.com/limited_sde.zip")
         .header(USER_AGENT, "CLI EVE Utility Application by Sapporo Jones")
         .send()
         .await?

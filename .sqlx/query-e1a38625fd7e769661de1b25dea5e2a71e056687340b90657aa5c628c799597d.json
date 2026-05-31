@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT celestialIndex FROM mapPlanets WHERE _key IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "celestialIndex",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "mapPlanets",
+            "name": "celestialIndex"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "e1a38625fd7e769661de1b25dea5e2a71e056687340b90657aa5c628c799597d"
+}

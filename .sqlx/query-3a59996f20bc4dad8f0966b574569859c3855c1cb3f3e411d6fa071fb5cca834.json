@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT  name_en FROM types WHERE _key IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name_en",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "types",
+            "name": "name_en"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3a59996f20bc4dad8f0966b574569859c3855c1cb3f3e411d6fa071fb5cca834"
+}

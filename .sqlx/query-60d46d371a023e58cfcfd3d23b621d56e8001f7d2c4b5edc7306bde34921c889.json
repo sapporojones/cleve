@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name_en FROM mapSolarSystems WHERE _key IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name_en",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mapSolarSystems",
+            "name": "name_en"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "60d46d371a023e58cfcfd3d23b621d56e8001f7d2c4b5edc7306bde34921c889"
+}

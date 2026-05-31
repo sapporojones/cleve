@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name_en FROM mapRegions WHERE _key IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name_en",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mapRegions",
+            "name": "name_en"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "db818892b5a0ff9df45134c10a8d9d33f43713b8c20d3088f77e55245ab36ba5"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT constellationID FROM mapSolarSystems WHERE _key IS ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "constellationID",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "mapSolarSystems",
+            "name": "constellationID"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8bd7ea2680c6bb71871063b5c83bc575d1904283f5bdd16bddef7441a1da5af9"
+}
